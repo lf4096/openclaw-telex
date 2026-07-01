@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.0.1
+
+- Add the plugin manifest display name and `install.clawhubSpec` so the ClawHub Plugin Inspector validates without warnings.
+
 ## 1.0.0
 
 Initial release — an OpenClaw channel plugin for Voyager Telex: an agent receives and replies to Telex direct chats and channels (text and media) over the Telex OpenAPI.

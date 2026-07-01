@@ -1,6 +1,6 @@
 {
 	"name": "openclaw-telex",
-	"version": "1.0.0",
+	"version": "1.0.1",
 	"description": "OpenClaw Telex channel plugin",
 	"type": "module",
 	"main": "./dist/index.js",
@@ -60,6 +60,7 @@
 			"quickstartAllowFrom": true
 		},
 		"install": {
+			"clawhubSpec": "openclaw-telex",
 			"npmSpec": "openclaw-telex",
 			"defaultChoice": "npm"
 		},

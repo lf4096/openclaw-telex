@@ -1,5 +1,6 @@
 {
 	"id": "telex",
+	"name": "Telex",
 	"channels": ["telex"],
 	"contracts": {
 		"tools": ["telex"]
