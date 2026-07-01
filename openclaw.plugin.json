@@ -1,0 +1,85 @@
+{
+	"id": "telex",
+	"channels": ["telex"],
+	"contracts": {
+		"tools": ["telex"]
+	},
+	"toolMetadata": {
+		"telex": {
+			"configSignals": [{ "rootPath": "channels", "required": ["telex"] }]
+		}
+	},
+	"channelConfigs": {
+		"telex": {
+			"label": "Telex",
+			"description": "Voyager Telex messaging integration.",
+			"schema": {
+				"type": "object",
+				"additionalProperties": false,
+				"properties": {
+					"enabled": { "type": "boolean" },
+					"apiKey": { "type": "string" },
+					"baseUrl": { "type": "string" },
+					"botId": { "type": "string" },
+					"dmPolicy": { "type": "string", "enum": ["open", "allowlist", "pairing"] },
+					"allowFrom": { "type": "array", "items": { "type": "string" } },
+					"groupPolicy": { "type": "string", "enum": ["disabled", "allowlist", "open"] },
+					"groupAllowFrom": { "type": "array", "items": { "type": "string" } },
+					"groupSenderAllowFrom": { "type": "array", "items": { "type": "string" } },
+					"groupRequireMention": { "type": "boolean" },
+					"processingIndicator": { "type": "string", "enum": ["activity", "off"] },
+					"tools": {
+						"type": "object",
+						"properties": {
+							"searchIdentities": { "type": "boolean" },
+							"getIdentities": { "type": "boolean" },
+							"listConversations": { "type": "boolean" },
+							"getConversationInfo": { "type": "boolean" },
+							"listMembers": { "type": "boolean" },
+							"getConversationMessages": { "type": "boolean" }
+						}
+					},
+					"accounts": {
+						"type": "object",
+						"additionalProperties": {
+							"type": "object",
+							"properties": {
+								"enabled": { "type": "boolean" },
+								"apiKey": { "type": "string" },
+								"baseUrl": { "type": "string" },
+								"botId": { "type": "string" },
+								"dmPolicy": {
+									"type": "string",
+									"enum": ["open", "allowlist", "pairing"]
+								},
+								"allowFrom": { "type": "array", "items": { "type": "string" } },
+								"groupPolicy": {
+									"type": "string",
+									"enum": ["disabled", "allowlist", "open"]
+								},
+								"groupAllowFrom": {
+									"type": "array",
+									"items": { "type": "string" }
+								},
+								"groupSenderAllowFrom": {
+									"type": "array",
+									"items": { "type": "string" }
+								},
+								"groupRequireMention": { "type": "boolean" },
+								"processingIndicator": {
+									"type": "string",
+									"enum": ["activity", "off"]
+								}
+							}
+						}
+					}
+				}
+			}
+		}
+	},
+	"configSchema": {
+		"type": "object",
+		"additionalProperties": false,
+		"properties": {}
+	}
+}
