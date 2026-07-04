@@ -1,5 +1,9 @@
 # Changelog
 
+## 1.0.2
+
+- Parse RFC 3339 string timestamps from the Telex API (alongside the legacy Unix-seconds form).
+
 ## 1.0.1
 
 - Add the plugin manifest display name and `install.clawhubSpec` so the ClawHub Plugin Inspector validates without warnings.

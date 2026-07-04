@@ -92,8 +92,8 @@ export type TelexMessage = {
 	flags: number;
 	root_id: string;
 	data: { blocks: TelexBlock[]; mention_ids?: string[]; mention_all?: boolean };
-	create_time: number;
-	update_time: number;
+	create_time: string | number;
+	update_time: string | number;
 };
 
 export type TelexMember = {
@@ -111,8 +111,8 @@ export type TelexConversation = {
 	fork_of_conversation_id: string;
 	fork_of_message_id: string;
 	member_count: number;
-	create_time: number;
-	update_time: number;
+	create_time: string | number;
+	update_time: string | number;
 };
 
 // One server-streaming frame from OpenApiTelexSubscribe.
@@ -125,3 +125,13 @@ export type TelexProbeResult = {
 	error?: string;
 	latencyMs?: number;
 };
+
+// Normalizes an RFC 3339 string or Unix-seconds timestamp to epoch milliseconds (now() if absent).
+export function telexTimeMs(value: string | number | undefined): number {
+	if (typeof value === "number" && value > 0) return value * 1000;
+	if (typeof value === "string" && value && !value.startsWith("0001-01-01")) {
+		const ms = Date.parse(value);
+		if (!Number.isNaN(ms)) return ms;
+	}
+	return Date.now();
+}

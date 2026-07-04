@@ -24,6 +24,7 @@ import {
 	TelexMessageFlag,
 	TelexMessageStatus,
 } from "./types.js";
+import { telexTimeMs } from "./types.js";
 
 // Telex activity status expires after 5s server-side; refresh under that to keep it lit.
 const TYPING_KEEPALIVE_MS = 3000;
@@ -120,7 +121,7 @@ async function formatHistoryMessages(
 				from: own
 					? "Assistant"
 					: `${senderDisplay(message.sender_id, identities.get(message.sender_id))} (user)`,
-				timestamp: new Date((message.create_time || Math.floor(Date.now() / 1000)) * 1000),
+				timestamp: new Date(telexTimeMs(message.create_time)),
 				envelope: envelopeOptions,
 				body: text,
 			}),
@@ -309,7 +310,7 @@ export async function handleTelexMessage(params: {
 		senderName,
 		messageId: message.id,
 		mentioned,
-		timestampMs: (message.create_time || Math.floor(Date.now() / 1000)) * 1000,
+		timestampMs: telexTimeMs(message.create_time),
 		messageText,
 		mediaList,
 		forkOfConversationId: conversation.fork_of_conversation_id || undefined,

@@ -1,6 +1,6 @@
 {
 	"name": "openclaw-telex",
-	"version": "1.0.1",
+	"version": "1.0.2",
 	"description": "OpenClaw Telex channel plugin",
 	"type": "module",
 	"main": "./dist/index.js",
