@@ -38,10 +38,36 @@ export const TelexToolSchema = Type.Union([
 		conversation_id: Type.String({ description: "Conversation id (16-char hex)" }),
 	}),
 	Type.Object({
+		action: Type.Literal("create_channel", {
+			description:
+				"Create a channel with the bot as owner. Initial members may be given by identity id and/or email; every email must resolve or nothing is created.",
+		}),
+		title: Type.String({ description: "Channel title (1-200 chars)" }),
+		identity_ids: Type.Optional(
+			Type.Array(Type.String(), { description: "Member identity ids (16-char hex)" }),
+		),
+		emails: Type.Optional(
+			Type.Array(Type.String(), { description: "Member emails to resolve to identities" }),
+		),
+	}),
+	Type.Object({
 		action: Type.Literal("list_members", {
 			description: "List the members of a conversation.",
 		}),
 		conversation_id: Type.String({ description: "Conversation id (16-char hex)" }),
+	}),
+	Type.Object({
+		action: Type.Literal("add_members", {
+			description:
+				"Add members to a channel by identity id and/or email; every email must resolve or nobody is added.",
+		}),
+		conversation_id: Type.String({ description: "Conversation id (16-char hex)" }),
+		identity_ids: Type.Optional(
+			Type.Array(Type.String(), { description: "Member identity ids (16-char hex)" }),
+		),
+		emails: Type.Optional(
+			Type.Array(Type.String(), { description: "Member emails to resolve to identities" }),
+		),
 	}),
 	Type.Object({
 		action: Type.Literal("get_conversation_messages", {

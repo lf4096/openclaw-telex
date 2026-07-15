@@ -23,7 +23,6 @@ export type SendMessageParams = {
 	peerId?: string;
 	messageId?: string;
 	blocks: TelexBlock[];
-	mentionIds?: string[];
 	status?: number;
 };
 
@@ -37,9 +36,6 @@ function lruSet<K, V>(map: Map<K, V>, key: K, value: V, max: number): void {
 	}
 }
 
-// Entity caches (conversations, identities) expire entries after CACHE_TTL_MS on
-// top of the LRU bound, so a long-lived client re-fetches renamed titles,
-// membership counts, display names, etc. instead of serving them forever.
 type CacheEntry<V> = { value: V; expiresAt: number };
 
 function readCache<V>(map: Map<string, CacheEntry<V>>, key: string): V | undefined {
@@ -56,8 +52,27 @@ function writeCache<V>(map: Map<string, CacheEntry<V>>, key: string, value: V, m
 	lruSet(map, key, { value, expiresAt: Date.now() + CACHE_TTL_MS }, max);
 }
 
-// Runs fetch with an abort-based timeout, always clearing the timer. Callers own
-// body decoding and error shaping on the returned Response.
+type ApiError = { httpStatus?: number; apiMessage?: string };
+
+// 403 carries both "insufficient scope" (a key configuration error) and
+// "not a member" (conversation-level); branch on the stable body code. In-stream
+// error frames carry only the body code, so classification must not require a
+// status match.
+export function isConversationGone(err: unknown): boolean {
+	const { apiMessage } = err as ApiError;
+	return apiMessage === "not_a_member" || apiMessage === "conversation_not_found";
+}
+
+export function isAuthError(err: unknown): boolean {
+	const { httpStatus, apiMessage } = err as ApiError;
+	if (httpStatus === 401) return true;
+	return (
+		apiMessage === "insufficient_scope" ||
+		apiMessage === "invalid_api_key" ||
+		apiMessage === "api_key_empty"
+	);
+}
+
 export async function fetchWithTimeout(
 	url: string,
 	init: RequestInit,
@@ -76,28 +91,20 @@ export class TelexClient {
 	private apiKey: string;
 	private baseUrl: string;
 
-	// Echo suppression: the subscribe stream fans every conversation member's
-	// messages back to that member, so the bot receives its own sends. selfId is
-	// armed from config (botId) and refreshed from every send response; sent ids
-	// cover the brief window before selfId is first learned.
+	// Sent ids cover self-echoes before a send response reveals selfId.
 	private selfId: string | null;
 	private sentMessageIds = new Map<string, true>();
 
-	// Per-conversation backfill watermark. `settled` is the highest seq seen in a
-	// terminal state; `pending` holds in-progress seqs not yet completed. The
-	// backfill cursor is clamped below any pending seq, since a streaming message
-	// keeps its seq across IN_PROGRESS -> COMPLETED: advancing past it would make a
-	// reconnect's list-messages(after_seq) skip the completed form (forward-only
-	// stream never replays it).
-	private cursors = new Map<string, { settled: number; pending: Set<number> }>();
+	// Per-conversation message-sync state: cursor = local cache of the server
+	// read_seq (everything at or below it is settled), settled = the disposed
+	// seqs above it, poison = handle failure counts.
+	private sync = new Map<
+		string,
+		{ cursor: number; settled: Set<number>; maxSeen: number; poison: Map<number, number> }
+	>();
 
-	// Highest seq per conversation that entered an agent turn. When a mention lands
-	// in a requireMention channel, the gap since this seq is backfilled as context.
+	// Require-mention channels backfill context from the last agent turn.
 	private lastTurnSeq = new Map<string, number>();
-
-	// Inbound delivery is at-least-once: a reconnect backfill can re-deliver a
-	// message the live stream already produced, so dispatch is deduped by id.
-	private processedMessageIds = new Map<string, true>();
 
 	private conversationCache = new Map<string, CacheEntry<TelexConversation>>();
 	private identityCache = new Map<string, CacheEntry<TelexIdentityBrief>>();
@@ -129,6 +136,7 @@ export class TelexClient {
 			throw Object.assign(new Error(`Telex API error: ${message}`), {
 				httpStatus: res.status,
 				code,
+				apiMessage: (data as { message?: string }).message,
 			});
 		}
 		return data as T;
@@ -148,9 +156,7 @@ export class TelexClient {
 	}
 
 	async sendMessage(params: SendMessageParams): Promise<TelexMessage> {
-		const data: Record<string, unknown> = { blocks: params.blocks };
-		if (params.mentionIds && params.mentionIds.length > 0) data.mention_ids = params.mentionIds;
-		const body: Record<string, unknown> = { data };
+		const body: Record<string, unknown> = { data: { blocks: params.blocks } };
 		if (params.conversationId) body.conversation_id = params.conversationId;
 		if (params.peerId) body.peer_id = params.peerId;
 		if (params.messageId) body.message_id = params.messageId;
@@ -165,8 +171,22 @@ export class TelexClient {
 		await this.post("/set-activity", { conversation_id: conversationId, status });
 	}
 
-	// Files use plain HTTP (gin) endpoints, not the grpc-gateway JSON ones: upload
-	// is multipart, download streams bytes. Both authenticate with the same api key.
+	// Marking: push the watermark (the contiguous settled prefix from the cursor)
+	// to the server, then adopt the effective cursor it returns.
+	async syncReadCursor(conversationId: string): Promise<void> {
+		const state = this.sync.get(conversationId);
+		if (!state) return;
+		let watermark = state.cursor;
+		while (state.settled.has(watermark + 1)) watermark++;
+		if (watermark <= state.cursor) return;
+		const res = await this.post<{ read_seq?: number }>("/mark-read", {
+			conversation_id: conversationId,
+			read_seq: watermark,
+		});
+		this.updateCursor(conversationId, res.read_seq ?? watermark);
+	}
+
+	// Multipart upload bypasses grpc-gateway JSON.
 	async uploadFile(name: string, mime: string, bytes: Uint8Array): Promise<TelexMedia> {
 		const form = new FormData();
 		form.append("file", new Blob([bytes], { type: mime || "application/octet-stream" }), name);
@@ -185,28 +205,31 @@ export class TelexClient {
 			const message = (data as { message?: string }).message ?? `HTTP ${res.status}`;
 			throw Object.assign(new Error(`Telex upload error: ${message}`), {
 				httpStatus: res.status,
+				code: (data as { code?: number }).code,
+				apiMessage: (data as { message?: string }).message,
 			});
 		}
 		return data as TelexMedia;
 	}
 
-	async downloadFile(params: {
-		fileId: string;
-		conversationId?: string;
-		messageId?: string;
-	}): Promise<{ buffer: Buffer; contentType: string }> {
-		const qs = new URLSearchParams({ file_id: params.fileId });
-		if (params.conversationId) qs.set("conversation_id", params.conversationId);
-		if (params.messageId) qs.set("message_id", params.messageId);
-		const res = await fetchWithTimeout(
-			`${this.baseUrl}${OPENAPI_PREFIX}/download-file?${qs}`,
-			{ headers: { "x-api-key": this.apiKey } },
-			FILE_TIMEOUT_MS,
-		);
+	// The encrypted file id is the download capability.
+	fileDownloadUrl(fileId: string): string {
+		return `${this.baseUrl}${OPENAPI_PREFIX}/download-file?file_id=${encodeURIComponent(fileId)}`;
+	}
+
+	async downloadFile(fileId: string): Promise<{ buffer: Buffer; contentType: string }> {
+		const res = await fetchWithTimeout(this.fileDownloadUrl(fileId), {}, FILE_TIMEOUT_MS);
 		if (!res.ok) {
 			const detail = await res.text().catch(() => "");
+			let apiMessage: string | undefined;
+			try {
+				apiMessage = (JSON.parse(detail) as { message?: string }).message;
+			} catch {
+				// Non-JSON error body; classification falls back to the status.
+			}
 			throw Object.assign(new Error(`Telex download error: HTTP ${res.status} ${detail}`), {
 				httpStatus: res.status,
+				apiMessage,
 			});
 		}
 		const contentType = res.headers.get("content-type") ?? "application/octet-stream";
@@ -214,8 +237,7 @@ export class TelexClient {
 		return { buffer, contentType };
 	}
 
-	// forceRefresh bypasses the cache read (the agent tool wants live data); the
-	// fetched value still refreshes the cache for the hot inbound path.
+	// Tool reads bypass stale cache entries but still refresh them for inbound use.
 	async getConversation(
 		conversationId: string,
 		forceRefresh = false,
@@ -228,6 +250,15 @@ export class TelexClient {
 			"/get-conversation",
 			{ conversation_id: conversationId },
 		);
+		// The caller's own membership row names the bot's identity: arming here
+		// covers keys that cannot call get-identity, before any dispatch.
+		this.armSelfId(conversation.membership?.identity_id);
+		// Any authoritative read tightens seeded sync state (e.g. a tool read
+		// revealing messages the lossy stream dropped).
+		if (this.sync.has(conversationId)) {
+			this.updateCursor(conversationId, conversation.membership?.read_seq ?? 0);
+			this.observeSeq(conversationId, conversation.last_seq ?? 0);
+		}
 		writeCache(this.conversationCache, conversationId, conversation, CONVERSATION_CACHE_MAX);
 		return conversation;
 	}
@@ -241,12 +272,32 @@ export class TelexClient {
 			"/list-conversations",
 			{ kind: params?.kind, offset: params?.offset, limit: params?.limit },
 		);
-		return { conversations: res.conversations ?? [], total: res.total ?? 0 };
+		const conversations = res.conversations ?? [];
+		this.armSelfId(
+			conversations.find((c) => c.membership?.identity_id)?.membership?.identity_id,
+		);
+		return { conversations, total: res.total ?? 0 };
+	}
+
+	async createChannel(title: string, identityIds: string[]): Promise<TelexConversation> {
+		const { conversation } = await this.post<{ conversation: TelexConversation }>(
+			"/create-channel",
+			{ title, identity_ids: identityIds },
+		);
+		return conversation;
 	}
 
 	async listMembers(conversationId: string): Promise<TelexMember[]> {
 		const res = await this.get<{ members?: TelexMember[] }>("/list-members", {
 			conversation_id: conversationId,
+		});
+		return res.members ?? [];
+	}
+
+	async addMembers(conversationId: string, identityIds: string[]): Promise<TelexMember[]> {
+		const res = await this.post<{ members?: TelexMember[] }>("/add-members", {
+			conversation_id: conversationId,
+			identity_ids: identityIds,
 		});
 		return res.members ?? [];
 	}
@@ -274,8 +325,6 @@ export class TelexClient {
 		return res.identities ?? [];
 	}
 
-	// Exact-match lookup by id and/or email; caches results by id. Unknown
-	// ids/emails are simply absent from the response.
 	async getIdentities(ids: string[], emails: string[]): Promise<TelexIdentityBrief[]> {
 		const res = await this.post<{ identities?: TelexIdentityBrief[] }>(
 			"/batch-get-identities",
@@ -291,7 +340,6 @@ export class TelexClient {
 		return identities;
 	}
 
-	// Resolves identities by id, serving cache hits and batching the misses.
 	async resolveIdentities(ids: string[]): Promise<Map<string, TelexIdentityBrief>> {
 		const out = new Map<string, TelexIdentityBrief>();
 		const missing: string[] = [];
@@ -322,8 +370,15 @@ export class TelexClient {
 		});
 		if (res.status !== 200 || !res.body) {
 			const detail = await res.text().catch(() => "");
+			let apiMessage: string | undefined;
+			try {
+				apiMessage = (JSON.parse(detail) as { message?: string }).message;
+			} catch {
+				// Non-JSON error body; classification falls back to the status.
+			}
 			throw Object.assign(new Error(`Telex subscribe failed: HTTP ${res.status} ${detail}`), {
 				httpStatus: res.status,
+				apiMessage,
 			});
 		}
 
@@ -342,15 +397,21 @@ export class TelexClient {
 				if (!line) continue;
 				// grpc-gateway wraps each server-streaming frame as {"result": <Response>}
 				// and a terminal stream error as {"error": {...}}.
-				let parsed: { result?: TelexSubscribeEvent; error?: { message?: string } };
+				let parsed: {
+					result?: TelexSubscribeEvent;
+					error?: { message?: string; code?: number };
+				};
 				try {
 					parsed = JSON.parse(line);
 				} catch {
 					continue;
 				}
 				if (parsed.error) {
-					throw new Error(
-						`Telex subscribe stream error: ${parsed.error.message ?? "unknown"}`,
+					throw Object.assign(
+						new Error(
+							`Telex subscribe stream error: ${parsed.error.message ?? "unknown"}`,
+						),
+						{ apiMessage: parsed.error.message, code: parsed.error.code },
 					);
 				}
 				if (parsed.result) onEvent(parsed.result);
@@ -363,12 +424,19 @@ export class TelexClient {
 		if (message.id) lruSet(this.sentMessageIds, message.id, true, SENT_IDS_MAX);
 	}
 
-	// Arm selfId from config when the client was constructed without a botId and no
-	// send has learned it yet. A learned selfId (from recordSent) always wins.
+	// Never replace a selfId learned from a send response.
 	armSelfId(botId?: string): void {
 		if (this.selfId) return;
 		const trimmed = botId?.trim();
 		if (trimmed) this.selfId = trimmed;
+	}
+
+	// Without it, backfilled own messages dispatch as inbound and channel
+	// mentions are settled as ineligible until the first send reveals the id.
+	async ensureSelfId(): Promise<void> {
+		if (this.selfId) return;
+		const { identity } = await this.get<{ identity?: { id?: string } }>("/get-identity");
+		if (identity?.id) this.selfId = identity.id;
 	}
 
 	isOwnMessage(message: TelexMessage): boolean {
@@ -376,43 +444,86 @@ export class TelexClient {
 		return this.sentMessageIds.has(message.id);
 	}
 
-	// Whether this bot is mentioned: @all, or its own id in mention_ids. Derived
-	// from message data (best-effort: self id may be unknown before the first send).
+	// Direct mentions are unavailable until selfId is known.
 	isSelfMentioned(message: TelexMessage): boolean {
 		if (message.data?.mention_all) return true;
 		if (!this.selfId) return false;
 		return message.data?.mention_ids?.includes(this.selfId) ?? false;
 	}
 
-	// Records every observed frame against the backfill watermark. `terminal` is
-	// true for COMPLETED/ERROR/ABORTED (the seq will not change again); IN_PROGRESS
-	// frames mark the seq pending so the cursor stays below it until it settles.
-	noteMessage(conversationId: string, seq: number, terminal: boolean): void {
-		let entry = this.cursors.get(conversationId);
-		if (!entry) {
-			// Floor at seq-1: history below the first frame we observed is
-			// pre-subscription and must never be backfilled.
-			entry = { settled: seq - 1, pending: new Set() };
-			this.cursors.set(conversationId, entry);
+	isSeeded(conversationId: string): boolean {
+		return this.sync.has(conversationId);
+	}
+
+	seedConversation(conversationId: string, cursor: number, maxSeen: number): void {
+		let state = this.sync.get(conversationId);
+		if (!state) {
+			state = { cursor: 0, settled: new Set(), maxSeen: 0, poison: new Map() };
+			this.sync.set(conversationId, state);
 		}
-		if (terminal) {
-			if (seq > entry.settled) entry.settled = seq;
-			entry.pending.delete(seq);
-		} else {
-			entry.pending.add(seq);
+		this.updateCursor(conversationId, cursor);
+		state.maxSeen = Math.max(state.maxSeen, maxSeen);
+	}
+
+	// The single entry point for cursor updates: advance, then prune both tables.
+	updateCursor(conversationId: string, value: number): void {
+		const state = this.sync.get(conversationId);
+		if (!state || value <= state.cursor) return;
+		state.cursor = value;
+		for (const seq of state.settled) {
+			if (seq <= value) state.settled.delete(seq);
+		}
+		for (const seq of state.poison.keys()) {
+			if (seq <= value) state.poison.delete(seq);
 		}
 	}
 
-	// Per-conversation `after_seq` for reconnect backfill: the highest settled seq,
-	// clamped below the lowest still-pending seq so no in-progress message is skipped.
-	getBackfillTargets(): Array<{ conversationId: string; afterSeq: number }> {
-		const out: Array<{ conversationId: string; afterSeq: number }> = [];
-		for (const [conversationId, entry] of this.cursors) {
-			let afterSeq = entry.settled;
-			for (const seq of entry.pending) afterSeq = Math.min(afterSeq, seq - 1);
-			out.push({ conversationId, afterSeq });
-		}
-		return out;
+	getCursor(conversationId: string): number {
+		return this.sync.get(conversationId)?.cursor ?? 0;
+	}
+
+	isDisposed(conversationId: string, seq: number): boolean {
+		const state = this.sync.get(conversationId);
+		return !state || seq <= state.cursor || state.settled.has(seq);
+	}
+
+	settle(conversationId: string, seq: number): void {
+		const state = this.sync.get(conversationId);
+		if (!state) return;
+		if (seq > state.cursor) state.settled.add(seq);
+		state.maxSeen = Math.max(state.maxSeen, seq);
+	}
+
+	observeSeq(conversationId: string, seq: number): void {
+		const state = this.sync.get(conversationId);
+		if (state) state.maxSeen = Math.max(state.maxSeen, seq);
+	}
+
+	isLagging(conversationId: string): boolean {
+		const state = this.sync.get(conversationId);
+		return state ? state.cursor < state.maxSeen : false;
+	}
+
+	// Returns the new count; the caller logs the give-up exactly when it reaches N.
+	bumpPoison(conversationId: string, seq: number): number {
+		const state = this.sync.get(conversationId);
+		if (!state || seq <= state.cursor) return 0;
+		const count = (state.poison.get(seq) ?? 0) + 1;
+		state.poison.set(seq, count);
+		return count;
+	}
+
+	poisonCount(conversationId: string, seq: number): number {
+		return this.sync.get(conversationId)?.poison.get(seq) ?? 0;
+	}
+
+	knownConversations(): string[] {
+		return [...this.sync.keys()];
+	}
+
+	dropConversation(conversationId: string): void {
+		this.sync.delete(conversationId);
+		this.lastTurnSeq.delete(conversationId);
 	}
 
 	noteTurnSeq(conversationId: string, seq: number): void {
@@ -423,15 +534,6 @@ export class TelexClient {
 
 	getLastTurnSeq(conversationId: string): number | undefined {
 		return this.lastTurnSeq.get(conversationId);
-	}
-
-	// Returns true the first time a message id is seen (and records it), false on
-	// a duplicate. Only completed messages should be marked, so streaming frames
-	// that share an id are not consumed before the final frame is dispatched.
-	markProcessed(messageId: string): boolean {
-		if (this.processedMessageIds.has(messageId)) return false;
-		lruSet(this.processedMessageIds, messageId, true, SENT_IDS_MAX);
-		return true;
 	}
 }
 
@@ -444,7 +546,6 @@ export function getTelexClient(apiKey: string, baseUrl: string, botId?: string):
 		client = new TelexClient(apiKey, baseUrl, botId);
 		clientCache.set(key, client);
 	} else if (botId) {
-		// A cached client (e.g. seeded by a botId-less probe) adopts a later botId.
 		client.armSelfId(botId);
 	}
 	return client;

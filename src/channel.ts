@@ -159,6 +159,11 @@ export const telexPlugin: ChannelPlugin<ResolvedTelexAccount> = {
 		},
 	},
 	setupWizard: telexSetupWizard,
+	agentPrompt: {
+		messageToolHints: () => [
+			"- Telex mentions: to notify someone, write the inline token `[@](mention:<identity_id>)` (16-char hex id from the telex tool or inbound metadata); `[@all](mention:all)` notifies everyone. The server fills in the display name. Plain `@name` text does not notify anyone.",
+		],
+	},
 	messaging: {
 		normalizeTarget: (raw) => normalizeTelexTarget(raw) ?? undefined,
 		resolveOutboundSessionRoute: (params) => resolveTelexOutboundSessionRoute(params),

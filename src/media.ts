@@ -25,34 +25,33 @@ export function mediaPlaceholder(block: TelexBlock): string {
 	}
 }
 
+// History media is not staged locally, so expose its download URL.
+export function mediaMarkdownLink(client: TelexClient, block: TelexBlock): string {
+	const fileId = block.media?.file_id;
+	if (!fileId) return mediaPlaceholder(block);
+	const url = client.fileDownloadUrl(fileId);
+	const name = block.media?.name || "file";
+	return block.type === TelexBlockType.IMAGE ? `![${name}](${url})` : `[${name}](${url})`;
+}
+
 function mediaKind(blockType: number): InboundMediaFacts["kind"] {
 	if (blockType === TelexBlockType.IMAGE) return "image";
 	if (blockType === TelexBlockType.VIDEO) return "video";
 	return "document";
 }
 
-// Downloads a media block's bytes via the OpenAPI download-file endpoint and
-// stages them in the shared media store, which assigns a unique id/path so two
-// files with the same name never collide. Returns null on any failure so a bad
-// attachment never blocks the rest of the message.
 export async function resolveInboundMedia(params: {
 	client: TelexClient;
 	block: TelexBlock;
-	conversationId: string;
-	messageId: string;
 }): Promise<InboundMediaFacts | null> {
-	const { client, block, conversationId, messageId } = params;
+	const { client, block } = params;
 	const fileId = block.media?.file_id;
 	if (!fileId) return null;
 	const log = logger("media");
 	const core = getTelexRuntime();
 
 	try {
-		const { buffer, contentType } = await client.downloadFile({
-			fileId,
-			conversationId,
-			messageId,
-		});
+		const { buffer, contentType } = await client.downloadFile(fileId);
 		let mime = block.media?.mime || contentType;
 		if (!mime || mime === "application/octet-stream") {
 			const detected = await core.media.detectMime({ buffer });
@@ -101,8 +100,6 @@ function readLocalMedia(resolved: string): { buffer: Buffer; name: string } {
 	return { buffer: fs.readFileSync(resolved), name: path.basename(resolved) };
 }
 
-// Loads an outbound media reference (media store uri, local path, or http url)
-// into bytes for upload, detecting a mime type and enforcing the size cap.
 export async function prepareOutboundMedia(
 	mediaUrl: string,
 ): Promise<{ bytes: Buffer; name: string; mime: string }> {

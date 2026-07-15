@@ -36,7 +36,9 @@
 							"getIdentities": { "type": "boolean" },
 							"listConversations": { "type": "boolean" },
 							"getConversationInfo": { "type": "boolean" },
+							"createChannel": { "type": "boolean" },
 							"listMembers": { "type": "boolean" },
+							"addMembers": { "type": "boolean" },
 							"getConversationMessages": { "type": "boolean" }
 						}
 					},

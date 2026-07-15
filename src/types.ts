@@ -20,7 +20,7 @@ export type ResolvedTelexAccount = {
 	config: TelexConfig;
 };
 
-// Wire enums mirror telex.proto (snake_case JSON, integer enums).
+// Values must match telex.proto.
 export const TelexBlockType = {
 	TEXT: 1,
 	IMAGE: 2,
@@ -99,6 +99,7 @@ export type TelexMessage = {
 export type TelexMember = {
 	identity_id: string;
 	role: number;
+	read_seq?: number;
 };
 
 export type TelexConversation = {
@@ -111,11 +112,12 @@ export type TelexConversation = {
 	fork_of_conversation_id: string;
 	fork_of_message_id: string;
 	member_count: number;
+	last_seq: number;
 	create_time: string | number;
 	update_time: string | number;
+	membership?: TelexMember;
 };
 
-// One server-streaming frame from OpenApiTelexSubscribe.
 export type TelexSubscribeEvent = {
 	message?: TelexMessage;
 };
@@ -126,7 +128,6 @@ export type TelexProbeResult = {
 	latencyMs?: number;
 };
 
-// Normalizes an RFC 3339 string or Unix-seconds timestamp to epoch milliseconds (now() if absent).
 export function telexTimeMs(value: string | number | undefined): number {
 	if (typeof value === "number" && value > 0) return value * 1000;
 	if (typeof value === "string" && value && !value.startsWith("0001-01-01")) {

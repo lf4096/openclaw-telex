@@ -25,9 +25,35 @@ function resolveToolsConfig(cfg?: TelexToolsConfig): ResolvedToolsConfig {
 		getIdentities: cfg?.getIdentities ?? true,
 		listConversations: cfg?.listConversations ?? true,
 		getConversationInfo: cfg?.getConversationInfo ?? true,
+		createChannel: cfg?.createChannel ?? true,
 		listMembers: cfg?.listMembers ?? true,
+		addMembers: cfg?.addMembers ?? true,
 		getConversationMessages: cfg?.getConversationMessages ?? true,
 	};
+}
+
+// batch-get-identities silently skips unknown emails, so completeness is checked
+// here: any unresolved email aborts before the mutation.
+async function resolveMemberIds(
+	client: TelexClient,
+	identityIds: string[] | undefined,
+	emails: string[] | undefined,
+): Promise<{ ids: string[] } | { error: string }> {
+	const ids = new Set(identityIds ?? []);
+	const wanted = [...new Set(emails ?? [])];
+	if (wanted.length > 0) {
+		const identities = await client.getIdentities([], wanted);
+		const byEmail = new Map(identities.map((i) => [i.email.toLowerCase(), i.id]));
+		const unresolved = wanted.filter((email) => !byEmail.has(email.toLowerCase()));
+		if (unresolved.length > 0) {
+			return { error: `unresolved emails: ${unresolved.join(", ")}` };
+		}
+		for (const email of wanted) {
+			const id = byEmail.get(email.toLowerCase());
+			if (id) ids.add(id);
+		}
+	}
+	return { ids: [...ids] };
 }
 
 export function registerTelexTool(api: OpenClawPluginApi) {
@@ -71,7 +97,7 @@ export function registerTelexTool(api: OpenClawPluginApi) {
 				name: "telex",
 				label: "Telex",
 				description:
-					"Telex operations. Actions: search_identities (fuzzy find users/bots by name or email), get_identities (exact resolve by id and/or email), list_conversations (chats + channels; filter with kind=1 for channels only), get_conversation_info (details by id), list_members (conversation members), get_conversation_messages (a conversation's message history, chronological).",
+					"Telex operations. NOT for sending - use the message tool to reply. Actions: search_identities (fuzzy find users/bots by name or email), get_identities (exact resolve by id and/or email), list_conversations (chats + channels; filter with kind=1 for channels only), get_conversation_info (details by id), create_channel (new channel owned by the bot; members by id and/or email), list_members (conversation members), add_members (add members to a channel by id and/or email), get_conversation_messages (a conversation's message history, chronological). The channel management actions (create_channel, add_members) can be disabled per account.",
 				parameters: TelexToolSchema,
 				async execute(_toolCallId, params) {
 					const p = params as TelexToolParams;
@@ -134,10 +160,49 @@ export function registerTelexTool(api: OpenClawPluginApi) {
 										await client.getConversation(p.conversation_id, true),
 									),
 								});
+							case "create_channel": {
+								if (!toolsCfg.createChannel)
+									return json({ error: "createChannel is disabled in config" });
+								const resolved = await resolveMemberIds(
+									client,
+									p.identity_ids,
+									p.emails,
+								);
+								if ("error" in resolved) return json(resolved);
+								return json({
+									conversation: describeConversation(
+										await client.createChannel(p.title, resolved.ids),
+									),
+								});
+							}
 							case "list_members": {
 								if (!toolsCfg.listMembers)
 									return json({ error: "listMembers is disabled in config" });
 								const members = await client.listMembers(p.conversation_id);
+								const identities = await client.resolveIdentities(
+									members.map((m) => m.identity_id),
+								);
+								return json({
+									members: members.map((m) => describeMember(m, identities)),
+								});
+							}
+							case "add_members": {
+								if (!toolsCfg.addMembers)
+									return json({ error: "addMembers is disabled in config" });
+								const resolved = await resolveMemberIds(
+									client,
+									p.identity_ids,
+									p.emails,
+								);
+								if ("error" in resolved) return json(resolved);
+								if (resolved.ids.length === 0)
+									return json({
+										error: "provide at least one identity_id or email",
+									});
+								const members = await client.addMembers(
+									p.conversation_id,
+									resolved.ids,
+								);
 								const identities = await client.resolveIdentities(
 									members.map((m) => m.identity_id),
 								);

@@ -14,8 +14,7 @@ import {
 	TelexToolStatus,
 } from "./types.js";
 
-// The wire protocol encodes these fields as integer enums; the agent reads the
-// tool output as JSON, so surface the enum name (lowercased) instead of a bare int.
+// Tool output needs readable labels for wire-level integer enums.
 function labelMap(e: Record<string, number>): Record<number, string> {
 	const out: Record<number, string> = {};
 	for (const [name, value] of Object.entries(e)) out[value] = name.toLowerCase();
@@ -30,7 +29,6 @@ const messageStatusLabel = labelMap(TelexMessageStatus);
 const toolStatusLabel = labelMap(TelexToolStatus);
 const blockTypeLabel = labelMap(TelexBlockType);
 
-// Message flags are a bitmask, so expand the set bits into a list of labels.
 function messageFlagLabels(flags: number): string[] {
 	const out: string[] = [];
 	for (const [name, bit] of Object.entries(TelexMessageFlag)) {
@@ -39,11 +37,13 @@ function messageFlagLabels(flags: number): string[] {
 	return out;
 }
 
+// Leave the label empty so the server can fill in the display name.
 export function describeIdentity(i: TelexIdentityBrief) {
 	return {
 		...i,
 		kind: identityKindLabel[i.kind] ?? i.kind,
 		status: identityStatusLabel[i.status] ?? i.status,
+		mention: `[@](mention:${i.id})`,
 	};
 }
 

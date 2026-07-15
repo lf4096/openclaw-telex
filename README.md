@@ -37,7 +37,7 @@ Config lives under `channels.telex`:
       "enabled": true,
       "apiKey": "<plaintext bot api key>",
       "baseUrl": "https://voyager.ingarena.net",
-      "botId": "0a1b2c3d4e5f6071",        // optional, the bot's own identity id (hardens echo suppression)
+      "botId": "0a1b2c3d4e5f6071",        // optional override; identity is resolved via get-identity at connect
 
       "dmPolicy": "allowlist",             // open | allowlist | pairing
       "allowFrom": ["alice@company.com", "0a1b2c3d4e5f6071"],
@@ -57,7 +57,7 @@ Config lives under `channels.telex`:
 | --- | --- | --- |
 | `apiKey` | - | Telex bot API key (`x-api-key`). Required. |
 | `baseUrl` | `https://voyager.ingarena.net` | Voyager API host. |
-| `botId` | - | The bot's identity id (16-char hex). Optional; arms self-echo suppression from the first frame. |
+| `botId` | - | The bot's identity id (16-char hex). Optional override; the plugin resolves it via `get-identity` at connect. |
 | `dmPolicy` | `allowlist` | Who may DM the bot. `open` requires `allowFrom` to include `"*"`. |
 | `allowFrom` | - | Identity ids or emails allowed to DM (and pairing-approved ids). |
 | `groupPolicy` | `disabled` | Channel participation. `allowlist` restricts to `groupAllowFrom`. |
@@ -72,19 +72,22 @@ Multiple bots are supported via `channels.telex.accounts.<id>` overrides, the sa
 
 - **Inbound** opens one long-lived server-streaming connection to `GET /voyager/v1/openapi/telex/subscribe`. This single stream carries new messages for every conversation the bot belongs to; whether the bot was mentioned is derived client-side from each message's `mention_ids`/`mention_all`. The stream is forward-only (it does not replay history); on reconnect the plugin backfills the gap per conversation with `list-messages(after_seq)`.
 - **Outbound** posts text blocks to `POST /voyager/v1/openapi/telex/send-message`, chunked for readability, with a `working` activity indicator (`set-activity`) while the agent runs.
-- **Media** flows through the OpenAPI file endpoints. Inbound image/file blocks are auto-downloaded (`GET /openapi/telex/download-file`, authorized by the message they arrived in) and handed to the agent as attachments so it can see images. Outbound attachments are uploaded (`POST /openapi/telex/upload-file`, ≤20 MB) and sent as a media block.
+- **Outbound mentions** are inline tokens in the text: `[@](mention:<identity_id>)` or `[@all](mention:all)`; the server derives the targets from them and fills in the target's real display name. The plugin teaches the agent this syntax via a message-tool prompt hint, exposes sender ids in inbound envelopes, and puts a ready-to-paste `mention` token in `telex` tool identity results.
+- **Media** flows through the OpenAPI file endpoints. Inbound image/file blocks are auto-downloaded (`GET /openapi/telex/download-file`, unauthenticated by design - the encrypted file id is the capability) and handed to the agent as attachments so it can see images; media in history/backfill context is passed as public download links instead. Outbound attachments are uploaded (`POST /openapi/telex/upload-file`, ≤20 MB) and sent as a media block.
 - **Direct chats** (Telex `chat`) are answered subject to `dmPolicy`. **Channels** (Telex `channel`) are answered subject to `groupPolicy` and, by default, only when the bot is mentioned.
-- **Self-echo suppression**: the subscribe stream fans the bot's own messages back to it, so the plugin drops messages sent by its own identity (learned from `botId` and from every send response).
+- **Self-echo suppression**: the subscribe stream fans the bot's own messages back to it, so the plugin drops messages sent by its own identity (resolved via `get-identity` at connect; `botId` overrides, and send responses confirm it).
 
 ## Agent tool
 
-When enabled, the plugin registers a `telex` tool so the agent can inspect Telex:
+When enabled, the plugin registers a `telex` tool so the agent can inspect Telex and manage channels:
 
 - `search_identities` - fuzzy find users/bots by name or email
 - `get_identities` - exact resolve by id and/or email
 - `list_conversations` - chats and channels (paginated)
 - `get_conversation_info` - a conversation's details
+- `create_channel` - create a channel
 - `list_members` - members of a conversation
+- `add_members` - add members to a channel
 - `get_conversation_messages` - messages in a conversation (chronological)
 
 Each action can be disabled under `channels.telex.tools`.
@@ -93,8 +96,7 @@ Each action can be disabled under `channels.telex.tools`.
 
 - **No threads.** The Telex OpenAPI send surface is per-conversation; each conversation maps to one agent session.
 - **Media is 20 MB max** (the server upload cap), and inbound media is auto-downloaded on every message it appears in.
-- Reconnect gap backfill is in-memory (per-conversation cursors): a transient disconnect is recovered by paging `list-messages(after_seq)`, but a full process restart starts cold (no backfill of messages missed while down).
-- Channel backfill mention-detection needs the bot's own id. Live frames carry a server-computed mention flag, but backfilled channel messages recompute it locally, so set `botId` to avoid missing an @-mention that arrived during a disconnect.
+- Sync state is in-memory except the server-persisted read cursor: a restart resumes each conversation from its `read_seq` and repairs forward through windowed `list-messages` reads, so messages that arrived while down are backfilled.
 
 ## Publishing
 
