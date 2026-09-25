@@ -52,7 +52,11 @@ function writeCache<V>(map: Map<string, CacheEntry<V>>, key: string, value: V, m
 	lruSet(map, key, { value, expiresAt: Date.now() + CACHE_TTL_MS }, max);
 }
 
-type ApiError = { httpStatus?: number; apiMessage?: string };
+type ApiError = { httpStatus?: number; apiMessage?: string; detail?: unknown };
+
+export function apiErrorDetail(err: unknown): unknown {
+	return (err as ApiError).detail;
+}
 
 // 403 carries both "insufficient scope" (a key configuration error) and
 // "not a member" (conversation-level); branch on the stable body code. In-stream
@@ -93,6 +97,8 @@ export class TelexClient {
 
 	// Sent ids cover self-echoes before a send response reveals selfId.
 	private selfId: string | null;
+	// A user's identity id is the user id, so the owner id also names the owner's identity.
+	private ownerId: string | null = null;
 	private sentMessageIds = new Map<string, true>();
 
 	// Per-conversation message-sync state: cursor = local cache of the server
@@ -133,10 +139,12 @@ export class TelexClient {
 		if (!res.ok) {
 			const code = (data as { code?: number }).code;
 			const message = (data as { message?: string }).message ?? `HTTP ${res.status}`;
+			const details = (data as { details?: { detail?: unknown }[] }).details;
 			throw Object.assign(new Error(`Telex API error: ${message}`), {
 				httpStatus: res.status,
 				code,
 				apiMessage: (data as { message?: string }).message,
+				detail: details?.[0]?.detail,
 			});
 		}
 		return data as T;
@@ -164,6 +172,24 @@ export class TelexClient {
 
 		const { message } = await this.post<{ message: TelexMessage }>("/send-message", body);
 		this.recordSent(message);
+		return message;
+	}
+
+	async updateInteraction(messageId: string, interactionIds: string[]): Promise<void> {
+		await this.post("/update-interaction", {
+			message_id: messageId,
+			interaction_ids: interactionIds,
+		});
+	}
+
+	async answerInteraction(
+		messageId: string,
+		answers: { interaction_id: string; option_ids?: string[]; text?: string }[],
+	): Promise<TelexMessage> {
+		const { message } = await this.post<{ message: TelexMessage }>("/answer-interaction", {
+			message_id: messageId,
+			answers,
+		});
 		return message;
 	}
 
@@ -485,12 +511,23 @@ export class TelexClient {
 		if (trimmed) this.selfId = trimmed;
 	}
 
-	// Without it, backfilled own messages dispatch as inbound and channel
+	// Without the self id, backfilled own messages dispatch as inbound and channel
 	// mentions are settled as ineligible until the first send reveals the id.
-	async ensureSelfId(): Promise<void> {
-		if (this.selfId) return;
-		const { identity } = await this.get<{ identity?: { id?: string } }>("/get-identity");
-		if (identity?.id) this.selfId = identity.id;
+	async ensureSelfIdentity(): Promise<void> {
+		if (this.selfId && this.ownerId) return;
+		const { identity } = await this.get<{ identity?: { id?: string; owner_id?: string } }>(
+			"/get-identity",
+		);
+		if (!this.selfId && identity?.id) this.selfId = identity.id;
+		if (identity?.owner_id) this.ownerId = identity.owner_id;
+	}
+
+	getSelfId(): string | null {
+		return this.selfId;
+	}
+
+	getOwnerId(): string | null {
+		return this.ownerId;
 	}
 
 	isOwnMessage(message: TelexMessage): boolean {

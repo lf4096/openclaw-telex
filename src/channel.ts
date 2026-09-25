@@ -12,6 +12,7 @@ import {
 	resolveStoredAccountKey,
 	resolveTelexAccount,
 } from "./accounts.js";
+import { telexApprovalCapability } from "./approval.js";
 import { resolveTelexClient } from "./client.js";
 import { TelexConfigSchema } from "./config-schema.js";
 import { telexOutbound } from "./outbound.js";
@@ -47,6 +48,7 @@ export const telexPlugin: ChannelPlugin<ResolvedTelexAccount> = {
 			await client.sendMessage({ peerId: id, blocks: [textBlock(PAIRING_APPROVED_MESSAGE)] });
 		},
 	},
+	approvalCapability: telexApprovalCapability,
 	capabilities: {
 		chatTypes: ["direct", "channel"],
 		polls: false,
@@ -230,6 +232,7 @@ export const telexPlugin: ChannelPlugin<ResolvedTelexAccount> = {
 				runtime: ctx.runtime,
 				abortSignal: ctx.abortSignal,
 				accountId: ctx.accountId,
+				channelRuntime: ctx.channelRuntime,
 			});
 		},
 	},

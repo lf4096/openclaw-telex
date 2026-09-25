@@ -1,6 +1,8 @@
+import type { ChannelRuntimeSurface } from "openclaw/plugin-sdk/channel-contract";
 import type { OpenClawConfig } from "openclaw/plugin-sdk/core";
 import type { RuntimeEnv } from "openclaw/plugin-sdk/runtime";
 import { listEnabledTelexAccounts, resolveTelexAccount } from "./accounts.js";
+import { registerTelexApprovalRuntime } from "./approval.js";
 import { handleTelexMessage } from "./bot.js";
 import { type TelexClient, isAuthError, isConversationGone, resolveTelexClient } from "./client.js";
 import { logger } from "./log.js";
@@ -12,6 +14,7 @@ export type MonitorTelexOpts = {
 	runtime?: RuntimeEnv;
 	abortSignal?: AbortSignal;
 	accountId?: string;
+	channelRuntime?: ChannelRuntimeSurface;
 };
 
 const INITIAL_BACKOFF_MS = 1_000;
@@ -394,8 +397,9 @@ async function connectSingleAccount(params: {
 	account: ResolvedTelexAccount;
 	runtime?: RuntimeEnv;
 	abortSignal?: AbortSignal;
+	channelRuntime?: ChannelRuntimeSurface;
 }): Promise<void> {
-	const { cfg, account, runtime, abortSignal } = params;
+	const { cfg, account, runtime, abortSignal, channelRuntime } = params;
 	const { accountId } = account;
 	const log = logger("subscribe");
 
@@ -406,7 +410,23 @@ async function connectSingleAccount(params: {
 	const dispatchParams: DispatchParams = { cfg, account, client, runtime };
 
 	stoppedAccounts.delete(accountId);
-	const sweep = setInterval(() => void reconcile(dispatchParams), SWEEP_INTERVAL_MS);
+	let approvalsRegistered = false;
+	const registerApprovals = () => {
+		approvalsRegistered ||= registerTelexApprovalRuntime({
+			channelRuntime,
+			accountId,
+			client,
+			abortSignal,
+		});
+	};
+	const sweep = setInterval(() => {
+		void reconcile(dispatchParams);
+		if (!approvalsRegistered) {
+			void client.ensureSelfIdentity().then(registerApprovals, (err) => {
+				log.warn("get-identity retry failed", { accountId, err: String(err) });
+			});
+		}
+	}, SWEEP_INTERVAL_MS);
 	let backoff = INITIAL_BACKOFF_MS;
 
 	try {
@@ -430,7 +450,7 @@ async function connectSingleAccount(params: {
 			let reconciled = false;
 			try {
 				log.info("connecting", { accountId, baseUrl: account.baseUrl });
-				await client.ensureSelfId().catch((err) => {
+				await client.ensureSelfIdentity().catch((err) => {
 					// Never blocks the stream: seeding arms the identity from
 					// membership rows before any dispatch.
 					if (isAuthError(err)) {
@@ -451,6 +471,7 @@ async function connectSingleAccount(params: {
 						);
 					}
 				});
+				registerApprovals();
 				armStale();
 				await client.subscribe(attempt.signal, (event) => {
 					armStale();
@@ -525,6 +546,7 @@ export async function monitorTelexProvider(opts: MonitorTelexOpts = {}): Promise
 			account,
 			runtime: opts.runtime,
 			abortSignal: opts.abortSignal,
+			channelRuntime: opts.channelRuntime,
 		});
 	}
 
@@ -545,6 +567,7 @@ export async function monitorTelexProvider(opts: MonitorTelexOpts = {}): Promise
 				account,
 				runtime: opts.runtime,
 				abortSignal: opts.abortSignal,
+				channelRuntime: opts.channelRuntime,
 			}),
 		),
 	);

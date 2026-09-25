@@ -160,6 +160,21 @@ export const TelexToolSchema = Type.Union([
 		),
 		limit: Type.Optional(Type.Number({ description: "Page size (1-100, default 50)" })),
 	}),
+	Type.Object({
+		action: Type.Literal("answer_interaction", {
+			description:
+				"Answer an <interaction> listing message_id and interaction_id; one call per message.",
+		}),
+		message_id: Type.String({ description: "The message carrying the interactions" }),
+		answers: Type.Array(
+			Type.Object({
+				interaction_id: Type.String(),
+				option_ids: Type.Optional(Type.Array(Type.String())),
+				text: Type.Optional(Type.String()),
+			}),
+			{ description: "One answer per interaction" },
+		),
+	}),
 ]);
 
 export type TelexToolParams = Static<typeof TelexToolSchema>;

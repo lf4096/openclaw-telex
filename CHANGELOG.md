@@ -2,7 +2,10 @@
 
 ## Unreleased
 
-- Add `rename_conversation`, `update_identity`, `update_conversation_settings`, `delete_conversation`, `update_member_role` and `remove_members` tool actions.
+- Render `ask_user` questions as select cards, answered by a tap, a skip or free text.
+- Deliver exec, plugin and system-agent approvals to the bot's owner as button cards.
+- Show incoming interactions to the agent as `<interaction>` markup.
+- Add `rename_conversation`, `update_identity`, `update_conversation_settings`, `delete_conversation`, `update_member_role`, `remove_members` and `answer_interaction` tool actions.
 - Report `member_permissions` and `my_role` on `get_conversation_info` actions.
 
 ## 1.1.1

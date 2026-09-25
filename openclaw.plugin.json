@@ -5,6 +5,9 @@
 	"contracts": {
 		"tools": ["telex"]
 	},
+	"doctorContract": {
+		"stateMigrations": []
+	},
 	"toolMetadata": {
 		"telex": {
 			"configSignals": [{ "rootPath": "channels", "required": ["telex"] }]
@@ -45,7 +48,8 @@
 							"addMembers": { "type": "boolean" },
 							"updateMemberRole": { "type": "boolean" },
 							"removeMembers": { "type": "boolean" },
-							"getConversationMessages": { "type": "boolean" }
+							"getConversationMessages": { "type": "boolean" },
+							"answerInteraction": { "type": "boolean" }
 						}
 					},
 					"accounts": {

@@ -27,6 +27,7 @@ export const TelexBlockType = {
 	VIDEO: 3,
 	AUDIO: 4,
 	FILE: 5,
+	INTERACTION: 6,
 	THINKING: 11,
 	TOOL: 12,
 	EVENT: 21,
@@ -44,6 +45,16 @@ export const TelexMessageFlag = { NONE: 0, EVENT: 1, EDITED: 2, FORK_PREFIX: 4 }
 export const TelexIdentityKind = { USER: 0, MATE_INSTANCE: 1, BOT: 2 } as const;
 export const TelexIdentityStatus = { ACTIVE: 0, RETIRED: 1 } as const;
 export const TelexToolStatus = { IN_PROGRESS: 0, SUCCESS: 1, ERROR: 2, ABORTED: 3 } as const;
+export const TelexInteractionMode = { SELECT: 1, BUTTON: 2 } as const;
+export const TelexInteractionStatus = { OPEN: 0, ANSWERED: 1, SKIPPED: 2, EXPIRED: 3 } as const;
+export const TelexInteractionButtonStyle = { DEFAULT: 0, PRIMARY: 1, DANGER: 2 } as const;
+
+// Agents need readable labels for wire-level integer enums.
+export function labelMap(e: Record<string, number>): Record<number, string> {
+	const out: Record<number, string> = {};
+	for (const [name, value] of Object.entries(e)) out[value] = name.toLowerCase();
+	return out;
+}
 
 // TelexConversationFlag bits, keyed by the permission name the tool speaks. Restriction semantics:
 // a set bit limits the action to the channel owner and admins.
@@ -75,6 +86,32 @@ export type TelexTool = {
 	output?: Record<string, unknown>;
 };
 
+export type TelexInteractionOption = {
+	id: string;
+	label: string;
+	description?: string;
+	style?: number;
+};
+
+export type TelexInteractionAnswer = {
+	option_ids?: string[];
+	text?: string;
+	answerer_id?: string;
+};
+
+export type TelexInteraction = {
+	id: string;
+	mode: number;
+	text?: string;
+	options?: TelexInteractionOption[];
+	multi_select?: boolean;
+	allow_free_text?: boolean;
+	answerer_ids?: string[];
+	deadline?: string;
+	status?: number;
+	answer?: TelexInteractionAnswer;
+};
+
 export type TelexEvent = {
 	kind: string;
 	details?: Record<string, unknown>;
@@ -85,6 +122,7 @@ export type TelexBlock = {
 	type: number;
 	text?: string;
 	media?: TelexMedia;
+	interaction?: TelexInteraction;
 	tool?: TelexTool;
 	event?: TelexEvent;
 };

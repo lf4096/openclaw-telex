@@ -21,6 +21,7 @@ export const TelexToolsConfigSchema = z
 		updateMemberRole: z.boolean().optional().default(true),
 		removeMembers: z.boolean().optional().default(true),
 		getConversationMessages: z.boolean().optional().default(true),
+		answerInteraction: z.boolean().optional().default(true),
 	})
 	.strict();
 

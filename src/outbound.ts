@@ -2,6 +2,7 @@ import type { ChannelOutboundAdapter } from "openclaw/plugin-sdk/channel-send-re
 import type { OpenClawConfig } from "openclaw/plugin-sdk/core";
 import { resolveSendableOutboundReplyParts } from "openclaw/plugin-sdk/reply-payload";
 import { resolveTelexAccount } from "./accounts.js";
+import { shouldSuppressLocalTelexApprovalPrompt } from "./approval.js";
 import { type TelexClient, resolveTelexClient } from "./client.js";
 import { getTelexRuntime } from "./runtime.js";
 import { TELEX_TEXT_CHUNK_LIMIT, sendTelexMessage } from "./send.js";
@@ -24,6 +25,7 @@ export const telexOutbound: ChannelOutboundAdapter = {
 	chunker: chunkMarkdown,
 	chunkerMode: "markdown",
 	textChunkLimit: TELEX_TEXT_CHUNK_LIMIT,
+	shouldSuppressLocalPayloadPrompt: shouldSuppressLocalTelexApprovalPrompt,
 
 	// Telex messages carry a block array, so the whole payload (text + every attachment)
 	// is rendered as one multi-block message rather than separate text/media sends.

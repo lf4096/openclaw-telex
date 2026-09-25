@@ -1,3 +1,4 @@
+import { messageInteractionMarkup } from "./interactive.js";
 import {
 	type TelexBlock,
 	TelexBlockType,
@@ -14,14 +15,8 @@ import {
 	TelexMessageFlag,
 	TelexMessageStatus,
 	TelexToolStatus,
+	labelMap,
 } from "./types.js";
-
-// Tool output needs readable labels for wire-level integer enums.
-function labelMap(e: Record<string, number>): Record<number, string> {
-	const out: Record<number, string> = {};
-	for (const [name, value] of Object.entries(e)) out[value] = name.toLowerCase();
-	return out;
-}
 
 const conversationKindLabel = labelMap(TelexConversationKind);
 const memberRoleLabel = labelMap(TelexMemberRole);
@@ -94,21 +89,26 @@ export function describeMember(m: TelexMember, identities?: Map<string, TelexIde
 	};
 }
 
-function describeBlock(b: TelexBlock) {
+function describeBlock(m: TelexMessage, b: TelexBlock, selfId: string | null, direct: boolean) {
+	const { interaction, ...rest } = b;
 	return {
-		...b,
+		...rest,
 		type: blockTypeLabel[b.type] ?? b.type,
 		...(b.tool
 			? { tool: { ...b.tool, status: toolStatusLabel[b.tool.status] ?? b.tool.status } }
 			: {}),
+		...(interaction ? { text: messageInteractionMarkup(m, interaction, selfId, direct) } : {}),
 	};
 }
 
-export function describeMessage(m: TelexMessage) {
+export function describeMessage(m: TelexMessage, selfId: string | null, direct: boolean) {
 	return {
 		...m,
 		status: messageStatusLabel[m.status] ?? m.status,
 		flags: messageFlagLabels(m.flags),
-		data: { ...m.data, blocks: (m.data?.blocks ?? []).map(describeBlock) },
+		data: {
+			...m.data,
+			blocks: (m.data?.blocks ?? []).map((b) => describeBlock(m, b, selfId, direct)),
+		},
 	};
 }

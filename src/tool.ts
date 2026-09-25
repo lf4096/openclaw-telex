@@ -1,6 +1,6 @@
 import type { OpenClawPluginApi } from "openclaw/plugin-sdk/core";
 import { listEnabledTelexAccounts, resolveTelexAccount } from "./accounts.js";
-import { type TelexClient, resolveTelexClient } from "./client.js";
+import { type TelexClient, apiErrorDetail, resolveTelexClient } from "./client.js";
 import {
 	describeConversation,
 	describeConversationBrief,
@@ -13,6 +13,7 @@ import {
 	type ResolvedTelexAccount,
 	TelexChannelPermission,
 	type TelexChannelPermissionName,
+	TelexConversationKind,
 	TelexMemberRoleByName,
 	type TelexToolsConfig,
 } from "./types.js";
@@ -42,6 +43,7 @@ function resolveToolsConfig(cfg?: TelexToolsConfig): ResolvedToolsConfig {
 		updateMemberRole: cfg?.updateMemberRole ?? true,
 		removeMembers: cfg?.removeMembers ?? true,
 		getConversationMessages: cfg?.getConversationMessages ?? true,
+		answerInteraction: cfg?.answerInteraction ?? true,
 	};
 }
 
@@ -125,7 +127,7 @@ export function registerTelexTool(api: OpenClawPluginApi) {
 				name: "telex",
 				label: "Telex",
 				description:
-					"Telex operations. NOT for sending - use the message tool to reply. Actions: search_identities (fuzzy find users/bots by name or email), get_identities (exact resolve by id and/or email), update_identity (edit the bot's own display name and/or description), list_conversations (chats + channels, abridged; filter with kind=1 for channels only), get_conversation_info (details by id), create_channel (new channel owned by the bot; members by id and/or email), rename_conversation (retitle a channel or non-default chat), update_conversation_settings (allow or deny channel members an action, and replace the announcement; the owner and admins are never restricted), delete_conversation (delete a channel), list_members (conversation members), add_members (add members to a channel by id and/or email), update_member_role (member, admin, or owner to hand the channel over), remove_members (remove members from a channel by identity id and/or email), get_conversation_messages (a conversation's message history, chronological).",
+					"Telex operations. NOT for sending - use the message tool to reply. Actions: search_identities (fuzzy find users/bots by name or email), get_identities (exact resolve by id and/or email), update_identity (edit the bot's own display name and/or description), list_conversations (chats + channels, abridged; filter with kind=1 for channels only), get_conversation_info (details by id), create_channel (new channel owned by the bot; members by id and/or email), rename_conversation (retitle a channel or non-default chat), update_conversation_settings (allow or deny channel members an action, and replace the announcement; the owner and admins are never restricted), delete_conversation (delete a channel), list_members (conversation members), add_members (add members to a channel by id and/or email), update_member_role (member, admin, or owner to hand the channel over), remove_members (remove members from a channel by identity id and/or email), get_conversation_messages (a conversation's message history, chronological), answer_interaction (answer an <interaction> listing message_id and interaction_id; one call per message).",
 				parameters: TelexToolSchema,
 				async execute(_toolCallId, params) {
 					// Tool-search dispatch reaches execute without validating input against the schema.
@@ -355,28 +357,57 @@ export function registerTelexTool(api: OpenClawPluginApi) {
 								await client.removeMembers(p.conversation_id, resolved.ids);
 								return json({ requested: resolved.ids });
 							}
-							case "get_conversation_messages":
+							case "get_conversation_messages": {
 								if (!toolsCfg.getConversationMessages)
 									return json({
 										error: "getConversationMessages is disabled in config",
 									});
-								return json({
-									messages: (
-										await client.listMessages({
-											conversationId: p.conversation_id,
-											beforeSeq: p.before_seq,
-											afterSeq: p.after_seq,
-											limit: p.limit,
-										})
-									).map(describeMessage),
+								const conversation = await client.getConversation(
+									p.conversation_id,
+								);
+								const direct = conversation.kind === TelexConversationKind.CHAT;
+								const messages = await client.listMessages({
+									conversationId: p.conversation_id,
+									beforeSeq: p.before_seq,
+									afterSeq: p.after_seq,
+									limit: p.limit,
 								});
+								return json({
+									messages: messages.map((m) =>
+										describeMessage(m, client.getSelfId(), direct),
+									),
+								});
+							}
+							case "answer_interaction": {
+								if (!toolsCfg.answerInteraction)
+									return json({
+										error: "answerInteraction is disabled in config",
+									});
+								if (p.answers.length === 0)
+									return json({ error: "provide at least one answer" });
+								const message = await client.answerInteraction(
+									p.message_id,
+									p.answers,
+								);
+								return json({
+									message: {
+										id: message.id,
+										conversation_id: message.conversation_id,
+										seq: message.seq,
+									},
+								});
+							}
 							default:
 								return json({
 									error: `Unknown action: ${String((p as Record<string, unknown>).action)}`,
 								});
 						}
 					} catch (err) {
-						return json({ error: err instanceof Error ? err.message : String(err) });
+						const detail = apiErrorDetail(err);
+						return json({
+							error: err instanceof Error ? err.message : String(err),
+							...(detail ? { detail } : {}),
+						});
 					}
 				},
 			};
