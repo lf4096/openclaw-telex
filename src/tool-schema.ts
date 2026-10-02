@@ -161,6 +161,13 @@ export const TelexToolSchema = Type.Union([
 		limit: Type.Optional(Type.Number({ description: "Page size (1-100, default 50)" })),
 	}),
 	Type.Object({
+		action: Type.Literal("get_message", {
+			description: "Fetch one message by id.",
+		}),
+		conversation_id: Type.String({ description: "Conversation id (16-char hex)" }),
+		message_id: Type.String({ description: "Message id (16-char hex)" }),
+	}),
+	Type.Object({
 		action: Type.Literal("answer_interaction", {
 			description:
 				"Answer an <interaction> listing message_id and interaction_id, one answer per question in order.",

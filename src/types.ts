@@ -156,6 +156,7 @@ export type TelexMessage = {
 	status: number;
 	flags: number;
 	root_id: string;
+	quote_id?: string;
 	data: { blocks: TelexBlock[]; mention_ids?: string[]; mention_all?: boolean };
 	create_time: string | number;
 	update_time: string | number;

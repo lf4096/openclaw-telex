@@ -124,6 +124,32 @@ function historyMessageText(client: TelexClient, message: TelexMessage): string 
 	return parts.join("\n");
 }
 
+type TelexInboundQuote = {
+	id: string;
+	body: string;
+	sender: string;
+	media: InboundMediaFacts[];
+};
+
+async function inboundQuote(
+	client: TelexClient,
+	message: TelexMessage,
+): Promise<TelexInboundQuote | undefined> {
+	const quoteId = message.quote_id;
+	if (!quoteId) return undefined;
+	const [source] = await client.batchGetMessages(message.conversation_id, [quoteId]);
+	if (!source) return undefined;
+	const sender = client.isOwnMessage(source)
+		? "Assistant"
+		: senderDisplay(source.sender_id, await client.resolveIdentity(source.sender_id));
+	const media: InboundMediaFacts[] = [];
+	for (const block of source.data.blocks) {
+		const facts = await resolveInboundMedia({ client, block });
+		if (facts) media.push(facts);
+	}
+	return { id: quoteId, body: historyMessageText(client, source), sender, media };
+}
+
 async function formatHistoryMessages(
 	cfg: OpenClawConfig,
 	client: TelexClient,
@@ -312,6 +338,14 @@ export async function handleTelexMessage(params: {
 		log.info("skip: empty message", base);
 		return;
 	}
+	const quote = await inboundQuote(client, message).catch((err) => {
+		log.warn("quoted message read failed", {
+			...base,
+			quoteId: message.quote_id,
+			err: String(err),
+		});
+		return undefined;
+	});
 
 	let missedHistory: { starterBody: string; historyBody: string } | undefined;
 	if (isChannel) {
@@ -348,6 +382,7 @@ export async function handleTelexMessage(params: {
 		timestampMs: telexTimeMs(message.create_time),
 		messageText,
 		mediaList,
+		quote,
 		forkOfConversationId: conversation.fork_of_conversation_id || undefined,
 		missedHistory,
 	});
@@ -449,12 +484,14 @@ function buildTelexDelivery(params: {
 						conversationId,
 						sessionKey,
 						card,
+						quoteId: payload.replyToId,
 					}));
 				await sendTelexMessage({
 					client,
 					conversationId,
 					text: sent ? "" : (text ?? trimmedText),
 					mediaUrls,
+					quoteId: sent ? undefined : payload.replyToId,
 					chunk: chunkText,
 				});
 			} catch (err) {
@@ -479,6 +516,7 @@ async function dispatchTelexTurn(params: {
 	timestampMs: number;
 	messageText: string;
 	mediaList: InboundMediaFacts[];
+	quote?: TelexInboundQuote;
 	forkOfConversationId?: string;
 	missedHistory?: { starterBody: string; historyBody: string };
 }): Promise<TelexTurn | undefined> {
@@ -610,7 +648,7 @@ async function dispatchTelexTurn(params: {
 			mentions: { canDetectMention: isChannel, wasMentioned: params.mentioned },
 		},
 		media: params.mediaList.length > 0 ? params.mediaList : undefined,
-		supplemental: threadHistory ? { thread: threadHistory } : undefined,
+		supplemental: { thread: threadHistory, quote: params.quote },
 	});
 
 	const processingIndicator = account.config.processingIndicator ?? "activity";

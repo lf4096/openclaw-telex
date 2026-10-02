@@ -29,7 +29,7 @@ export const telexOutbound: ChannelOutboundAdapter = {
 
 	// Telex messages carry a block array, so the whole payload (text + every attachment)
 	// is rendered as one multi-block message rather than separate text/media sends.
-	sendPayload: async ({ cfg, to, payload, accountId }) => {
+	sendPayload: async ({ cfg, to, payload, replyToId, accountId }) => {
 		const client = requireClient(cfg, accountId ?? undefined);
 		const conversationId = normalizeTelexTarget(to);
 		if (!conversationId) {
@@ -41,6 +41,7 @@ export const telexOutbound: ChannelOutboundAdapter = {
 			conversationId,
 			text: trimmedText,
 			mediaUrls,
+			quoteId: replyToId ?? undefined,
 			chunk: chunkMarkdown,
 		});
 		return { channel: "telex", messageId: message?.id ?? "", chatId: conversationId };
@@ -49,7 +50,7 @@ export const telexOutbound: ChannelOutboundAdapter = {
 	// Core's message-tool / cross-channel media path delivers plain attachments via
 	// sendMedia (one call per media unit), not sendPayload; route each through the same
 	// multi-block send so Telex reads as media-capable (deliver.ts supportsMedia).
-	sendMedia: async ({ cfg, to, text, mediaUrl, accountId }) => {
+	sendMedia: async ({ cfg, to, text, mediaUrl, replyToId, accountId }) => {
 		const client = requireClient(cfg, accountId ?? undefined);
 		const conversationId = normalizeTelexTarget(to);
 		if (!conversationId) {
@@ -60,18 +61,24 @@ export const telexOutbound: ChannelOutboundAdapter = {
 			conversationId,
 			text,
 			mediaUrls: mediaUrl ? [mediaUrl] : [],
+			quoteId: replyToId ?? undefined,
 			chunk: chunkMarkdown,
 		});
 		return { channel: "telex", messageId: message?.id ?? "", chatId: conversationId };
 	},
 
-	sendText: async ({ cfg, to, text, accountId }) => {
+	sendText: async ({ cfg, to, text, replyToId, accountId }) => {
 		const client = requireClient(cfg, accountId ?? undefined);
 		const conversationId = normalizeTelexTarget(to);
 		if (!conversationId) {
 			throw new Error("Telex sendText: empty target");
 		}
-		const message = await sendTelexMessage({ client, conversationId, text });
+		const message = await sendTelexMessage({
+			client,
+			conversationId,
+			text,
+			quoteId: replyToId ?? undefined,
+		});
 		return { channel: "telex", messageId: message?.id ?? "", chatId: conversationId };
 	},
 };

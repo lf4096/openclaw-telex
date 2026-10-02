@@ -154,8 +154,9 @@ export async function sendTelexCard(params: {
 	conversationId: string;
 	sessionKey: string;
 	card: TelexCard;
+	quoteId?: string;
 }): Promise<TelexMessage | undefined> {
-	const { client, account, conversationId, sessionKey, card } = params;
+	const { client, account, conversationId, sessionKey, card, quoteId } = params;
 	let message: TelexMessage;
 	try {
 		const answererIds = await answererIdsFor(client, account, conversationId);
@@ -164,7 +165,7 @@ export async function sendTelexCard(params: {
 				? { ...block, interaction: { ...block.interaction, answerer_ids: answererIds } }
 				: block,
 		);
-		message = await client.sendMessage({ conversationId, blocks });
+		message = await client.sendMessage({ conversationId, quoteId, blocks });
 	} catch (err) {
 		logger("outbound").warn("question card refused", {
 			accountId: account.accountId,

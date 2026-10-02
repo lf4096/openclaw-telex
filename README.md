@@ -76,6 +76,7 @@ Multiple bots are supported via `channels.telex.accounts.<id>` overrides, the sa
 - **Media** flows through the OpenAPI file endpoints. Inbound image/file blocks are auto-downloaded (`GET /openapi/telex/download-file`, unauthenticated by design - the encrypted file id is the capability) and handed to the agent as attachments so it can see images; media in history/backfill context is passed as public download links instead. Outbound attachments are uploaded (`POST /openapi/telex/upload-file`, ≤20 MB) and sent as a media block.
 - **Direct chats** (Telex `chat`) are answered subject to `dmPolicy`. **Channels** (Telex `channel`) are answered subject to `groupPolicy` and, by default, only when the bot is mentioned.
 - **Interactive messages**: an `ask_user` question goes out as a select card; a tap, a skip or free text on the card answers it, and the card is closed when the question ends another way, typed replies included. Interaction blocks others send reach the agent as `<interaction>` markup, carrying the ids `answer_interaction` needs when the interaction asks the bot.
+- **Quotes**: the agent sees a quoted message as the reply target. Replies quote only when the agent sets a reply target (a reply tag or the message tool's `replyTo`), and drop the quote if the server refuses it.
 - **Approvals** (exec, plugin and system-agent) go only to the bot's owner, as a button card: in place when raised in a chat with the owner, otherwise in the owner's default chat with the bot.
 - **Self-echo suppression**: the subscribe stream fans the bot's own messages back to it, so the plugin drops messages sent by its own identity (resolved via `get-identity` at connect; `botId` overrides, and send responses confirm it).
 
@@ -97,6 +98,7 @@ When enabled, the plugin registers a `telex` tool so the agent can inspect Telex
 - `update_member_role` - member, admin, or owner to hand the channel over
 - `remove_members` - remove members from a channel
 - `get_conversation_messages` - messages in a conversation (chronological)
+- `get_message` - one message by id
 - `answer_interaction` - answer or skip a question put to the bot
 
 Each action can be disabled under `channels.telex.tools`.

@@ -1,4 +1,5 @@
 import { logger } from "./log.js";
+import { looksLikeTelexId } from "./targets.js";
 import type {
 	TelexBlock,
 	TelexConversation,
@@ -25,9 +26,16 @@ export type SendMessageParams = {
 	conversationId?: string;
 	peerId?: string;
 	messageId?: string;
+	quoteId?: string;
 	blocks: TelexBlock[];
 	status?: number;
 };
+
+const QUOTE_SOURCE_ERRORS = new Set([
+	"quote_cross_conversation",
+	"quote_message_not_found",
+	"quote_message_not_quotable",
+]);
 
 function lruSet<K, V>(map: Map<K, V>, key: K, value: V, max: number): void {
 	if (map.has(key)) map.delete(key);
@@ -178,13 +186,35 @@ export class TelexClient {
 	}
 
 	async sendMessage(params: SendMessageParams): Promise<TelexMessage> {
+		// A bad reply target must not lose the reply: drop a malformed quote id, and resend without
+		// a quote the server refuses.
+		if (params.quoteId && !looksLikeTelexId(params.quoteId)) {
+			logger("outbound").warn("quote id malformed; sending without it", {
+				conversationId: params.conversationId,
+				quoteId: params.quoteId,
+			});
+			return this.sendMessage({ ...params, quoteId: undefined });
+		}
 		const body: Record<string, unknown> = { data: { blocks: params.blocks } };
 		if (params.conversationId) body.conversation_id = params.conversationId;
 		if (params.peerId) body.peer_id = params.peerId;
 		if (params.messageId) body.message_id = params.messageId;
+		if (params.quoteId) body.quote_id = params.quoteId;
 		if (params.status !== undefined) body.status = params.status;
 
-		const { message } = await this.post<{ message: TelexMessage }>("/send-message", body);
+		let message: TelexMessage;
+		try {
+			({ message } = await this.post<{ message: TelexMessage }>("/send-message", body));
+		} catch (err) {
+			const { apiMessage } = err as ApiError;
+			if (!params.quoteId || !apiMessage || !QUOTE_SOURCE_ERRORS.has(apiMessage)) throw err;
+			logger("outbound").warn("quote rejected; sending without it", {
+				conversationId: params.conversationId,
+				quoteId: params.quoteId,
+				reason: apiMessage,
+			});
+			return this.sendMessage({ ...params, quoteId: undefined });
+		}
 		this.recordSent(message);
 		return message;
 	}
@@ -386,6 +416,14 @@ export class TelexClient {
 			conversation_id: conversationId,
 			identity_ids: identityIds,
 		});
+	}
+
+	async batchGetMessages(conversationId: string, messageIds: string[]): Promise<TelexMessage[]> {
+		const res = await this.post<{ messages?: TelexMessage[] }>("/batch-get-messages", {
+			conversation_id: conversationId,
+			message_ids: messageIds,
+		});
+		return res.messages ?? [];
 	}
 
 	async listMessages(params: {

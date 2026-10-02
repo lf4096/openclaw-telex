@@ -1,6 +1,7 @@
 import type { OpenClawPluginApi } from "openclaw/plugin-sdk/core";
 import { listEnabledTelexAccounts, resolveTelexAccount } from "./accounts.js";
 import { type TelexClient, apiErrorDetail, resolveTelexClient } from "./client.js";
+import { logger } from "./log.js";
 import {
 	describeConversation,
 	describeConversationBrief,
@@ -15,6 +16,7 @@ import {
 	type TelexChannelPermissionName,
 	TelexConversationKind,
 	TelexMemberRoleByName,
+	type TelexMessage,
 	type TelexToolsConfig,
 } from "./types.js";
 
@@ -43,8 +45,34 @@ function resolveToolsConfig(cfg?: TelexToolsConfig): ResolvedToolsConfig {
 		updateMemberRole: cfg?.updateMemberRole ?? true,
 		removeMembers: cfg?.removeMembers ?? true,
 		getConversationMessages: cfg?.getConversationMessages ?? true,
+		getMessage: cfg?.getMessage ?? true,
 		answerInteraction: cfg?.answerInteraction ?? true,
 	};
+}
+
+async function describeMessages(
+	client: TelexClient,
+	conversationId: string,
+	direct: boolean,
+	messages: TelexMessage[],
+) {
+	const describe = (m: TelexMessage) => describeMessage(m, client.getSelfId(), direct);
+	const quoteIds = [...new Set(messages.flatMap((m) => (m.quote_id ? [m.quote_id] : [])))];
+	const quoted = new Map<string, TelexMessage>();
+	if (quoteIds.length > 0) {
+		const sources = await client.batchGetMessages(conversationId, quoteIds).catch((err) => {
+			logger("tool").warn("quoted messages read failed", {
+				conversationId,
+				err: String(err),
+			});
+			return [];
+		});
+		for (const source of sources) quoted.set(source.id, source);
+	}
+	return messages.map((m) => {
+		const source = m.quote_id ? quoted.get(m.quote_id) : undefined;
+		return source ? { ...describe(m), quoted_message: describe(source) } : describe(m);
+	});
 }
 
 // batch-get-identities silently skips unknown emails, so completeness is checked
@@ -127,7 +155,7 @@ export function registerTelexTool(api: OpenClawPluginApi) {
 				name: "telex",
 				label: "Telex",
 				description:
-					"Telex operations. NOT for sending - use the message tool to reply. Actions: search_identities (fuzzy find users/bots by name or email), get_identities (exact resolve by id and/or email), update_identity (edit the bot's own display name and/or description), list_conversations (chats + channels, abridged; filter with kind=1 for channels only), get_conversation_info (details by id), create_channel (new channel owned by the bot; members by id and/or email), rename_conversation (retitle a channel or non-default chat), update_conversation_settings (allow or deny channel members an action, and replace the announcement; the owner and admins are never restricted), delete_conversation (delete a channel), list_members (conversation members), add_members (add members to a channel by id and/or email), update_member_role (member, admin, or owner to hand the channel over), remove_members (remove members from a channel by identity id and/or email), get_conversation_messages (a conversation's message history, chronological), answer_interaction (answer an <interaction> listing message_id and interaction_id, one answer per question in order).",
+					"Telex operations. NOT for sending - use the message tool to reply. Actions: search_identities (fuzzy find users/bots by name or email), get_identities (exact resolve by id and/or email), update_identity (edit the bot's own display name and/or description), list_conversations (chats + channels, abridged; filter with kind=1 for channels only), get_conversation_info (details by id), create_channel (new channel owned by the bot; members by id and/or email), rename_conversation (retitle a channel or non-default chat), update_conversation_settings (allow or deny channel members an action, and replace the announcement; the owner and admins are never restricted), delete_conversation (delete a channel), list_members (conversation members), add_members (add members to a channel by id and/or email), update_member_role (member, admin, or owner to hand the channel over), remove_members (remove members from a channel by identity id and/or email), get_conversation_messages (a conversation's message history, chronological), get_message (one message by id), answer_interaction (answer an <interaction> listing message_id and interaction_id, one answer per question in order).",
 				parameters: TelexToolSchema,
 				async execute(_toolCallId, params) {
 					// Tool-search dispatch reaches execute without validating input against the schema.
@@ -373,10 +401,34 @@ export function registerTelexTool(api: OpenClawPluginApi) {
 									limit: p.limit,
 								});
 								return json({
-									messages: messages.map((m) =>
-										describeMessage(m, client.getSelfId(), direct),
+									messages: await describeMessages(
+										client,
+										p.conversation_id,
+										direct,
+										messages,
 									),
 								});
+							}
+							case "get_message": {
+								if (!toolsCfg.getMessage)
+									return json({ error: "getMessage is disabled in config" });
+								const conversation = await client.getConversation(
+									p.conversation_id,
+								);
+								const direct = conversation.kind === TelexConversationKind.CHAT;
+								const [message] = await describeMessages(
+									client,
+									p.conversation_id,
+									direct,
+									await client.batchGetMessages(p.conversation_id, [
+										p.message_id,
+									]),
+								);
+								if (!message)
+									return json({
+										error: "message not found in this conversation",
+									});
+								return json({ message });
 							}
 							case "answer_interaction": {
 								if (!toolsCfg.answerInteraction)

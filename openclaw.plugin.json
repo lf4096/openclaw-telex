@@ -49,6 +49,7 @@
 							"updateMemberRole": { "type": "boolean" },
 							"removeMembers": { "type": "boolean" },
 							"getConversationMessages": { "type": "boolean" },
+							"getMessage": { "type": "boolean" },
 							"answerInteraction": { "type": "boolean" }
 						}
 					},

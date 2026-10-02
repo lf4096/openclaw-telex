@@ -56,7 +56,7 @@ export const telexPlugin: ChannelPlugin<ResolvedTelexAccount> = {
 		media: true,
 		reactions: false,
 		edit: false,
-		reply: false,
+		reply: true,
 	},
 	reload: { configPrefixes: ["channels.telex"] },
 	configSchema: buildChannelConfigSchema(TelexConfigSchema),
@@ -189,6 +189,9 @@ export const telexPlugin: ChannelPlugin<ResolvedTelexAccount> = {
 		// carries markdown backslash escapes, `\]` among them.
 		stripRegexes: () => [/(?:\[@(?:\\.|[^\\\]])*\])?\(mention:[^)]+\)/g],
 	},
+	// "off" still keeps an explicit reply tag or the message tool's replyTo, so a reply quotes
+	// only when the agent asks for it.
+	threading: { resolveReplyToMode: () => "off" },
 	outbound: telexOutbound,
 	status: {
 		defaultRuntime: {

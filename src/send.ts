@@ -28,24 +28,32 @@ async function outboundMediaBlock(client: TelexClient, mediaUrl: string): Promis
 // Sends an outbound Telex message (agent reply or proactive send such as a cron job).
 // A Telex message carries an ordered block array, so the text and every attachment ride
 // in ONE message ([text, media, media, ...]). Text-only content is split across messages
-// when a chunker is supplied (long agent output). Returns the last message sent.
+// when a chunker is supplied (long agent output); only the first message carries the quote.
+// Returns the last message sent.
 export async function sendTelexMessage(params: {
 	client: TelexClient;
 	conversationId: string;
 	text?: string;
 	mediaUrls?: string[];
+	quoteId?: string;
 	chunk?: (text: string, limit: number) => string[];
 }): Promise<TelexMessage | undefined> {
 	const { client, conversationId, chunk } = params;
 	const text = params.text?.trim() ?? "";
 	const mediaUrls = params.mediaUrls ?? [];
+	let quoteId = params.quoteId;
 
 	if (mediaUrls.length === 0) {
 		const parts = chunk ? chunk(text, TELEX_TEXT_CHUNK_LIMIT) : [text];
 		let last: TelexMessage | undefined;
 		for (const part of parts) {
 			if (part.trim()) {
-				last = await client.sendMessage({ conversationId, blocks: [textBlock(part)] });
+				last = await client.sendMessage({
+					conversationId,
+					quoteId,
+					blocks: [textBlock(part)],
+				});
+				quoteId = undefined;
 			}
 		}
 		return last;
@@ -56,5 +64,5 @@ export async function sendTelexMessage(params: {
 	for (const mediaUrl of mediaUrls) {
 		blocks.push(await outboundMediaBlock(client, mediaUrl));
 	}
-	return client.sendMessage({ conversationId, blocks });
+	return client.sendMessage({ conversationId, quoteId, blocks });
 }
