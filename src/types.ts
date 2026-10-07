@@ -86,7 +86,7 @@ export type TelexMedia = {
 
 export type TelexTool = {
 	id: string;
-	name: string;
+	name?: string;
 	status: number;
 	input?: Record<string, unknown>;
 	output?: Record<string, unknown>;

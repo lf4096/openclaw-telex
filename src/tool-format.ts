@@ -108,7 +108,9 @@ export function describeMessage(m: TelexMessage, selfId: string | null, direct: 
 		flags: messageFlagLabels(m.flags),
 		data: {
 			...m.data,
-			blocks: (m.data?.blocks ?? []).map((b) => describeBlock(m, b, selfId, direct)),
+			blocks: (m.data?.blocks ?? [])
+				.filter((b) => b.type !== TelexBlockType.THINKING)
+				.map((b) => describeBlock(m, b, selfId, direct)),
 		},
 	};
 }

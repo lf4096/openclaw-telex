@@ -7,6 +7,7 @@
 - Deliver exec, plugin and system-agent approvals to the bot's owner as button cards.
 - Show incoming interactions to the agent as `<interaction>` markup.
 - Support quotes: the agent sees quoted messages, and replies quote only when the agent sets a reply target.
+- Stream each agent run into one message: thinking, the agent's remarks, tool progress and the reply (`streaming`, on by default).
 - Add `rename_conversation`, `update_identity`, `update_conversation_settings`, `delete_conversation`, `update_member_role`, `remove_members`, `get_message` and `answer_interaction` tool actions.
 - Report `member_permissions` and `my_role` on `get_conversation_info` actions.
 
