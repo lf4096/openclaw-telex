@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 1.2.0
 
 - Require OpenClaw 2026.9.1.
 - Render `ask_user` questions as select cards, answered by a tap, a skip or free text.
