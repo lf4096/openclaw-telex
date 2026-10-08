@@ -23,6 +23,7 @@ import { logger } from "./log.js";
 import { mediaMarkdownLink, mediaPlaceholder, resolveInboundMedia } from "./media.js";
 import { getTelexRuntime } from "./runtime.js";
 import { sendTelexMessage, textBlock } from "./send.js";
+import { type TelexStream, createTelexStream } from "./stream.js";
 import {
 	type ResolvedTelexAccount,
 	TelexBlockType,
@@ -384,6 +385,10 @@ export async function handleTelexMessage(params: {
 		mediaList,
 		quote,
 		forkOfConversationId: conversation.fork_of_conversation_id || undefined,
+		defaultChatPeerId:
+			conversation.kind === TelexConversationKind.CHAT && conversation.is_default
+				? conversation.peer_id
+				: undefined,
 		missedHistory,
 	});
 	// Only after admission: a failed attempt's retry must still see the
@@ -459,23 +464,38 @@ function buildTelexDelivery(params: {
 	conversationId: string;
 	sessionKey: string;
 	chunkText: (text: string, limit: number) => string[];
+	stream?: TelexStream;
 	log: ReturnType<typeof logger>;
 }): TelexDelivery {
-	const { client, account, conversationId, sessionKey, chunkText, log } = params;
+	const { client, account, conversationId, sessionKey, chunkText, stream, log } = params;
 	const accountId = account.accountId;
 	return {
-		deliver: async (payload) => {
+		deliver: async (payload, info) => {
 			const { trimmedText, mediaUrls, hasContent } =
 				resolveSendableOutboundReplyParts(payload);
 			const { card, text } = await renderTelexReply(payload);
 			if (!hasContent && !card && !text) return;
+			const replyText = text ?? trimmedText;
 			log.info("deliver", {
 				accountId,
 				conversationId,
+				kind: info.kind,
 				card: Boolean(card),
 				mediaCount: mediaUrls.length,
 			});
 			try {
+				if (card) {
+					await stream?.interrupt();
+				} else if (
+					stream &&
+					(await stream.appendReply({
+						text: replyText,
+						mediaUrls,
+						quoteId: payload.replyToId,
+					})) === "appended"
+				) {
+					return;
+				}
 				const sent =
 					card &&
 					(await sendTelexCard({
@@ -489,7 +509,7 @@ function buildTelexDelivery(params: {
 				await sendTelexMessage({
 					client,
 					conversationId,
-					text: sent ? "" : (text ?? trimmedText),
+					text: sent ? "" : replyText,
 					mediaUrls,
 					quoteId: sent ? undefined : payload.replyToId,
 					chunk: chunkText,
@@ -518,6 +538,7 @@ async function dispatchTelexTurn(params: {
 	mediaList: InboundMediaFacts[];
 	quote?: TelexInboundQuote;
 	forkOfConversationId?: string;
+	defaultChatPeerId?: string;
 	missedHistory?: { starterBody: string; historyBody: string };
 }): Promise<TelexTurn | undefined> {
 	const { cfg, account, client, conversationId, chatType, senderId, senderName, messageId } =
@@ -664,12 +685,21 @@ async function dispatchTelexTurn(params: {
 		settle = resolve;
 	});
 	let deferred = false;
+	const stream = createTelexStream({
+		client,
+		accountId,
+		conversationId,
+		defaultChatPeerId: params.defaultChatPeerId,
+		config: account.config,
+		log: logger("stream"),
+	});
 	const delivery = buildTelexDelivery({
 		client,
 		account,
 		conversationId,
 		sessionKey: route.sessionKey,
 		chunkText,
+		stream,
 		log: logger("outbound"),
 	});
 
@@ -710,6 +740,7 @@ async function dispatchTelexTurn(params: {
 		replyOptions: {
 			onModelSelected,
 			disableBlockStreaming: true,
+			...stream?.replyOptions,
 			// Core drops a queued turn on a stop, a reset or its queue policy, which is final; only a
 			// turn lost with the process stays unsettled, to be read again after the restart.
 			turnAdoptionLifecycle: {
@@ -733,10 +764,17 @@ async function dispatchTelexTurn(params: {
 	};
 
 	log.info("dispatching to agent", { accountId, conversationId, sessionKey: route.sessionKey });
-	const completion = core.channel.inbound.dispatchReply(turn).then((result) => {
-		log.info("dispatch complete", { accountId, conversationId, dispatched: result.dispatched });
-		if (!deferred) settle();
-	});
+	const completion = core.channel.inbound
+		.dispatchReply(turn)
+		.then((result) => {
+			log.info("dispatch complete", {
+				accountId,
+				conversationId,
+				dispatched: result.dispatched,
+			});
+			if (!deferred) settle();
+		})
+		.finally(() => stream?.endTurn());
 	// A turn can wait on a later message of its own conversation (ask_user).
 	await Promise.race([admitted, completion]);
 	completion.catch((err) =>

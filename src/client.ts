@@ -37,6 +37,12 @@ const QUOTE_SOURCE_ERRORS = new Set([
 	"quote_message_not_quotable",
 ]);
 
+const UNWRITABLE_MESSAGE_ERRORS = new Set([
+	"message_already_finalized",
+	"message_not_found",
+	"not_message_sender",
+]);
+
 function lruSet<K, V>(map: Map<K, V>, key: K, value: V, max: number): void {
 	if (map.has(key)) map.delete(key);
 	map.set(key, value);
@@ -85,6 +91,15 @@ export function isAuthError(err: unknown): boolean {
 		apiMessage === "insufficient_scope" ||
 		apiMessage === "invalid_api_key" ||
 		apiMessage === "api_key_empty"
+	);
+}
+
+export function isMessageUnwritable(err: unknown): boolean {
+	const { apiMessage } = err as ApiError;
+	return (
+		(apiMessage !== undefined && UNWRITABLE_MESSAGE_ERRORS.has(apiMessage)) ||
+		isConversationGone(err) ||
+		isAuthError(err)
 	);
 }
 
