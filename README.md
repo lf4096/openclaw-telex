@@ -47,7 +47,15 @@ Config lives under `channels.telex`:
       "groupSenderAllowFrom": ["alice@company.com"],
       "groupRequireMention": true,         // in channels, only respond when @-mentioned
 
-      "processingIndicator": "activity"    // activity | off
+      "processingIndicator": "activity",   // activity | off
+
+      "streaming": {
+        "mode": "progress",                // off | progress
+        "progress": {
+          "toolProgress": true,            // show tool calls
+          "commandText": "raw"             // raw | status
+        }
+      }
     }
   }
 }
@@ -65,6 +73,9 @@ Config lives under `channels.telex`:
 | `groupSenderAllowFrom` | - | If set, only these senders trigger the bot in channels. |
 | `groupRequireMention` | `true` | In channels, respond only when the bot is @-mentioned. |
 | `processingIndicator` | `activity` | Show an activity status while the agent works; `off` to disable. |
+| `streaming.mode` | `progress` | `progress` streams thinking and tool calls into the reply message; `off` sends each reply when it is ready, without streaming. |
+| `streaming.progress.toolProgress` | `true` | Show tool calls in the streamed message. |
+| `streaming.progress.commandText` | `raw` | `raw` shows the command text of exec-like tools; `status` hides it. |
 
 Multiple bots are supported via `channels.telex.accounts.<id>` overrides, the same way other OpenClaw channels do.
 
@@ -72,6 +83,7 @@ Multiple bots are supported via `channels.telex.accounts.<id>` overrides, the sa
 
 - **Inbound** opens one long-lived server-sent events connection to `GET /voyager/v1/openapi/telex/subscribe`. This single stream carries new messages for every conversation the bot belongs to; whether the bot was mentioned is derived client-side from each message's `mention_ids`/`mention_all`. The stream is forward-only (it does not replay history); on reconnect the plugin backfills the gap per conversation with `list-messages(after_seq)`.
 - **Outbound** posts text blocks to `POST /voyager/v1/openapi/telex/send-message`, chunked for readability, with a `working` activity indicator (`set-activity`) while the agent runs.
+- **Streaming**: with `streaming.mode: "progress"`, each agent run is one message: thinking (when the session's reasoning level is `stream`), the agent's remarks between steps, tool blocks and context compactions appear as it works, and the reply is appended at the end. Tool blocks show a short description and the outcome, never raw output; with `/verbose` on, OpenClaw's verbose summaries replace tool blocks and remarks. Any other send to the conversation ends the open message, and later progress continues in a new one. A message sent while a run is busy gets a progress message of its own, with the answer after it.
 - **Outbound mentions** are inline tokens in the text: `[@](mention:<identity_id>)` or `[@all](mention:all)`; the server derives the targets from them and fills in the target's real display name. The plugin teaches the agent this syntax via a message-tool prompt hint, exposes sender ids in inbound envelopes, and puts a ready-to-paste `mention` token in `telex` tool identity results.
 - **Media** flows through the OpenAPI file endpoints. Inbound image/file blocks are auto-downloaded (`GET /openapi/telex/download-file`, unauthenticated by design - the encrypted file id is the capability) and handed to the agent as attachments so it can see images; media in history/backfill context is passed as public download links instead. Outbound attachments are uploaded (`POST /openapi/telex/upload-file`, ≤20 MB) and sent as a media block.
 - **Direct chats** (Telex `chat`) are answered subject to `dmPolicy`. **Channels** (Telex `channel`) are answered subject to `groupPolicy` and, by default, only when the bot is mentioned.

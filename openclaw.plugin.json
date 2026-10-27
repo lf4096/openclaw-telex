@@ -32,6 +32,21 @@
 					"groupSenderAllowFrom": { "type": "array", "items": { "type": "string" } },
 					"groupRequireMention": { "type": "boolean" },
 					"processingIndicator": { "type": "string", "enum": ["activity", "off"] },
+					"streaming": {
+						"type": "object",
+						"additionalProperties": false,
+						"properties": {
+							"mode": { "type": "string", "enum": ["off", "progress"] },
+							"progress": {
+								"type": "object",
+								"additionalProperties": false,
+								"properties": {
+									"toolProgress": { "type": "boolean" },
+									"commandText": { "type": "string", "enum": ["raw", "status"] }
+								}
+							}
+						}
+					},
 					"tools": {
 						"type": "object",
 						"properties": {
@@ -83,6 +98,24 @@
 								"processingIndicator": {
 									"type": "string",
 									"enum": ["activity", "off"]
+								},
+								"streaming": {
+									"type": "object",
+									"additionalProperties": false,
+									"properties": {
+										"mode": { "type": "string", "enum": ["off", "progress"] },
+										"progress": {
+											"type": "object",
+											"additionalProperties": false,
+											"properties": {
+												"toolProgress": { "type": "boolean" },
+												"commandText": {
+													"type": "string",
+													"enum": ["raw", "status"]
+												}
+											}
+										}
+									}
 								}
 							}
 						}

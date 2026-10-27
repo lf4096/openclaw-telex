@@ -6,15 +6,26 @@ import { shouldSuppressLocalTelexApprovalPrompt } from "./approval.js";
 import { type TelexClient, resolveTelexClient } from "./client.js";
 import { getTelexRuntime } from "./runtime.js";
 import { TELEX_TEXT_CHUNK_LIMIT, sendTelexMessage } from "./send.js";
+import { closeTelexStreams } from "./stream.js";
 import { normalizeTelexTarget } from "./targets.js";
 
-function requireClient(cfg: OpenClawConfig, accountId?: string): TelexClient {
-	const account = resolveTelexAccount({ cfg, accountId });
+async function prepareSend(params: {
+	cfg: OpenClawConfig;
+	to: string;
+	accountId?: string | null;
+	method: string;
+}): Promise<{ client: TelexClient; conversationId: string }> {
+	const account = resolveTelexAccount({ cfg: params.cfg, accountId: params.accountId });
 	const client = resolveTelexClient(account);
 	if (!client) {
 		throw new Error(`Telex client not available for account ${account.accountId}`);
 	}
-	return client;
+	const conversationId = normalizeTelexTarget(params.to);
+	if (!conversationId) {
+		throw new Error(`Telex ${params.method}: empty target`);
+	}
+	await closeTelexStreams(account.accountId, { conversationId });
+	return { client, conversationId };
 }
 
 const chunkMarkdown = (text: string, limit: number) =>
@@ -30,11 +41,12 @@ export const telexOutbound: ChannelOutboundAdapter = {
 	// Telex messages carry a block array, so the whole payload (text + every attachment)
 	// is rendered as one multi-block message rather than separate text/media sends.
 	sendPayload: async ({ cfg, to, payload, replyToId, accountId }) => {
-		const client = requireClient(cfg, accountId ?? undefined);
-		const conversationId = normalizeTelexTarget(to);
-		if (!conversationId) {
-			throw new Error("Telex sendPayload: empty target");
-		}
+		const { client, conversationId } = await prepareSend({
+			cfg,
+			to,
+			accountId,
+			method: "sendPayload",
+		});
 		const { trimmedText, mediaUrls } = resolveSendableOutboundReplyParts(payload);
 		const message = await sendTelexMessage({
 			client,
@@ -51,11 +63,12 @@ export const telexOutbound: ChannelOutboundAdapter = {
 	// sendMedia (one call per media unit), not sendPayload; route each through the same
 	// multi-block send so Telex reads as media-capable (deliver.ts supportsMedia).
 	sendMedia: async ({ cfg, to, text, mediaUrl, replyToId, accountId }) => {
-		const client = requireClient(cfg, accountId ?? undefined);
-		const conversationId = normalizeTelexTarget(to);
-		if (!conversationId) {
-			throw new Error("Telex sendMedia: empty target");
-		}
+		const { client, conversationId } = await prepareSend({
+			cfg,
+			to,
+			accountId,
+			method: "sendMedia",
+		});
 		const message = await sendTelexMessage({
 			client,
 			conversationId,
@@ -68,11 +81,12 @@ export const telexOutbound: ChannelOutboundAdapter = {
 	},
 
 	sendText: async ({ cfg, to, text, replyToId, accountId }) => {
-		const client = requireClient(cfg, accountId ?? undefined);
-		const conversationId = normalizeTelexTarget(to);
-		if (!conversationId) {
-			throw new Error("Telex sendText: empty target");
-		}
+		const { client, conversationId } = await prepareSend({
+			cfg,
+			to,
+			accountId,
+			method: "sendText",
+		});
 		const message = await sendTelexMessage({
 			client,
 			conversationId,

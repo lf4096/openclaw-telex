@@ -3,9 +3,12 @@ import { logger } from "./log.js";
 import { mediaBlock, prepareOutboundMedia } from "./media.js";
 import { type TelexBlock, TelexBlockType, type TelexMessage } from "./types.js";
 
-// Telex caps a message's serialized `data` at 1 MiB (telex-openapi.md "Limits"); the chunker
-// counts characters, so chunk well under that to leave headroom for worst-case multi-byte text
-// (CJK ~3 B/char) plus JSON/block overhead. Long text-only replies are split at this size.
+// Telex caps a message's serialized `data` at 1 MiB.
+export const TELEX_MESSAGE_MAX_BYTES = 1024 * 1024;
+
+// The chunker counts characters, so chunk well under TELEX_MESSAGE_MAX_BYTES to leave headroom for
+// worst-case multi-byte text (CJK ~3 B/char) plus JSON/block overhead. Long text-only replies are
+// split at this size.
 export const TELEX_TEXT_CHUNK_LIMIT = 200_000;
 
 export function textBlock(text: string): TelexBlock {
@@ -23,6 +26,19 @@ async function outboundMediaBlock(client: TelexClient, mediaUrl: string): Promis
 		logger("outbound").error("media upload failed", { mediaUrl, err: String(err) });
 		return textBlock(`[attachment unavailable: ${String(err)}]`);
 	}
+}
+
+export async function messageBlocks(
+	client: TelexClient,
+	text: string,
+	mediaUrls: string[],
+): Promise<TelexBlock[]> {
+	const blocks: TelexBlock[] = [];
+	if (text) blocks.push(textBlock(text));
+	for (const mediaUrl of mediaUrls) {
+		blocks.push(await outboundMediaBlock(client, mediaUrl));
+	}
+	return blocks;
 }
 
 // Sends an outbound Telex message (agent reply or proactive send such as a cron job).
@@ -59,10 +75,6 @@ export async function sendTelexMessage(params: {
 		return last;
 	}
 
-	const blocks: TelexBlock[] = [];
-	if (text) blocks.push(textBlock(text));
-	for (const mediaUrl of mediaUrls) {
-		blocks.push(await outboundMediaBlock(client, mediaUrl));
-	}
+	const blocks = await messageBlocks(client, text, mediaUrls);
 	return client.sendMessage({ conversationId, quoteId, blocks });
 }

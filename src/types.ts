@@ -42,7 +42,7 @@ export const TelexMemberRoleByName: Record<string, number | undefined> = {
 };
 export const TelexMessageStatus = { COMPLETED: 0, IN_PROGRESS: 1, ERROR: 2, ABORTED: 3 } as const;
 export const TelexMessageFlag = { NONE: 0, EVENT: 1, EDITED: 2, FORK_PREFIX: 4 } as const;
-export const TelexIdentityKind = { USER: 0, MATE_INSTANCE: 1, BOT: 2 } as const;
+export const TelexIdentityKind = { USER: 0, AGENT: 1, BOT: 2 } as const;
 export const TelexIdentityStatus = { ACTIVE: 0, RETIRED: 1 } as const;
 export const TelexToolStatus = { IN_PROGRESS: 0, SUCCESS: 1, ERROR: 2, ABORTED: 3 } as const;
 export const TelexInteractionMode = { SELECT: 1, BUTTON: 2 } as const;
@@ -86,7 +86,7 @@ export type TelexMedia = {
 
 export type TelexTool = {
 	id: string;
-	name: string;
+	name?: string;
 	status: number;
 	input?: Record<string, unknown>;
 	output?: Record<string, unknown>;

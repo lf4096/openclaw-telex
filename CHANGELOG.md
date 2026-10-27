@@ -1,5 +1,10 @@
 # Changelog
 
+## Unreleased
+
+- Stream each agent run into one message: thinking, the agent's remarks, tool progress and the reply (`streaming`, on by default).
+- Report identity kind `agent` instead of `mate_instance`.
+
 ## 1.2.0
 
 - Require OpenClaw 2026.9.1.

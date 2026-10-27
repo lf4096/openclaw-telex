@@ -5,6 +5,19 @@ const DmPolicySchema = z.enum(["open", "allowlist", "pairing"]);
 const GroupPolicySchema = z.enum(["disabled", "allowlist", "open"]);
 const ProcessingIndicatorSchema = z.enum(["activity", "off"]);
 
+const StreamingConfigSchema = z
+	.object({
+		mode: z.enum(["off", "progress"]).optional(),
+		progress: z
+			.object({
+				toolProgress: z.boolean().optional(),
+				commandText: z.enum(["raw", "status"]).optional(),
+			})
+			.strict()
+			.optional(),
+	})
+	.strict();
+
 export const TelexToolsConfigSchema = z
 	.object({
 		searchIdentities: z.boolean().optional().default(true),
@@ -39,6 +52,7 @@ export const TelexAccountConfigSchema = z
 		groupSenderAllowFrom: z.array(z.string()).optional(),
 		groupRequireMention: z.boolean().optional(),
 		processingIndicator: ProcessingIndicatorSchema.optional(),
+		streaming: StreamingConfigSchema.optional(),
 	})
 	.strict();
 
@@ -55,6 +69,7 @@ export const TelexConfigSchema = z
 		groupSenderAllowFrom: z.array(z.string()).optional(),
 		groupRequireMention: z.boolean().optional().default(true),
 		processingIndicator: ProcessingIndicatorSchema.optional().default("activity"),
+		streaming: StreamingConfigSchema.optional(),
 		tools: TelexToolsConfigSchema.optional(),
 		accounts: z.record(z.string(), TelexAccountConfigSchema.optional()).optional(),
 	})

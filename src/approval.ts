@@ -28,6 +28,7 @@ import { type TelexClient, resolveTelexClient } from "./client.js";
 import { type AnsweredDetails, closeInteraction } from "./interactive.js";
 import { logger } from "./log.js";
 import { textBlock } from "./send.js";
+import { closeTelexStreams } from "./stream.js";
 import {
 	type TelexBlock,
 	TelexBlockType,
@@ -202,11 +203,12 @@ const telexApprovalNativeRuntime = createChannelApprovalNativeRuntimeAdapter<
 			const account = resolveTelexAccount({ cfg, accountId });
 			const client = resolveTelexClient(account);
 			if (!client) return null;
-			const message = await client.sendMessage(
+			const target =
 				preparedTarget.to === client.getOwnerId()
-					? { peerId: preparedTarget.to, blocks }
-					: { conversationId: preparedTarget.to, blocks },
-			);
+					? { peerId: preparedTarget.to }
+					: { conversationId: preparedTarget.to };
+			await closeTelexStreams(account.accountId, target);
+			const message = await client.sendMessage({ ...target, blocks });
 			return {
 				accountId: account.accountId,
 				messageId: message.id,
