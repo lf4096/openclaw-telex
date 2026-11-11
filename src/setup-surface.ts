@@ -79,7 +79,7 @@ async function promptCredentials(
 ): Promise<{ apiKey: string; baseUrl: string }> {
 	const apiKey = String(
 		await prompter.text({
-			message: "Enter Telex bot API key (x-api-key)",
+			message: "Enter bot API key (x-api-key)",
 			validate: (value) => (value?.trim() ? undefined : "Required"),
 		}),
 	).trim();
@@ -104,8 +104,8 @@ async function noteTelexCredentialHelp(
 ): Promise<void> {
 	await prompter.note(
 		[
-			"1) Open Voyager Telex and register a bot (Settings -> Bots -> Register).",
-			"2) Copy the one-time plaintext API key shown on registration.",
+			"1) Open Voyager and create a bot (Settings -> Bots -> Create Bot).",
+			"2) Copy the one-time plaintext API key shown when it is created.",
 			"3) The base URL is your Voyager host (default https://voyager.ingarena.net).",
 		].join("\n"),
 		"Telex credentials",

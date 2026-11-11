@@ -12,7 +12,7 @@ export async function probeTelex(params?: {
 	try {
 		const client = getTelexClient(params.apiKey, params.baseUrl);
 		const start = Date.now();
-		await client.getIdentities([], []);
+		await client.listConversations({ limit: 1 });
 		return { ok: true, latencyMs: Date.now() - start };
 	} catch (err) {
 		return { ok: false, error: err instanceof Error ? err.message : String(err) };

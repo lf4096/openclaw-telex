@@ -75,7 +75,7 @@ async function describeMessages(
 	});
 }
 
-// batch-get-identities silently skips unknown emails, so completeness is checked
+// identity/batch-get silently skips unknown emails, so completeness is checked
 // here: any unresolved email aborts before the mutation.
 async function resolveMemberIds(
 	client: TelexClient,
@@ -155,7 +155,7 @@ export function registerTelexTool(api: OpenClawPluginApi) {
 				name: "telex",
 				label: "Telex",
 				description:
-					"Telex operations. NOT for sending - use the message tool to reply. Actions: search_identities (fuzzy find users/bots by name or email), get_identities (exact resolve by id and/or email), update_identity (edit the bot's own display name and/or description), list_conversations (chats + channels, abridged; filter with kind=1 for channels only), get_conversation_info (details by id), create_channel (new channel owned by the bot; members by id and/or email), rename_conversation (retitle a channel or non-default chat), update_conversation_settings (allow or deny channel members an action, and replace the announcement; the owner and admins are never restricted), delete_conversation (delete a channel), list_members (conversation members), add_members (add members to a channel by id and/or email), update_member_role (member, admin, or owner to hand the channel over), remove_members (remove members from a channel by identity id and/or email), get_conversation_messages (a conversation's message history, chronological), get_message (one message by id), answer_interaction (answer an <interaction> listing message_id and interaction_id, one answer per question in order).",
+					"Telex operations. NOT for sending - use the message tool to reply. Actions: search_identities (fuzzy find users/bots by name or email), get_identities (exact resolve by id and/or email), update_identity (edit the bot's own name and/or description), list_conversations (chats + channels, abridged; filter with kind=1 for channels only), get_conversation_info (details by id), create_channel (new channel owned by the bot; members by id and/or email), rename_conversation (retitle a channel or non-default chat), update_conversation_settings (allow or deny channel members an action, and replace the announcement; the owner and admins are never restricted), delete_conversation (delete a channel), list_members (conversation members), add_members (add members to a channel by id and/or email), update_member_role (member, admin, or owner to hand the channel over), remove_members (remove members from a channel by identity id and/or email), get_conversation_messages (a conversation's message history, chronological), get_message (one message by id), answer_interaction (answer an <interaction> listing message_id and interaction_id, one answer per question in order).",
 				parameters: TelexToolSchema,
 				async execute(_toolCallId, params) {
 					// Tool-search dispatch reaches execute without validating input against the schema.
@@ -200,7 +200,7 @@ export function registerTelexTool(api: OpenClawPluginApi) {
 								return json({
 									identity: describeIdentity(
 										await client.updateIdentity({
-											displayName: p.display_name,
+											name: p.name,
 											description: p.description,
 										}),
 									),

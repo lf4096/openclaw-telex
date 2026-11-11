@@ -89,7 +89,7 @@ async function extractMessageContent(
 // Include the sender id so the agent can mention them.
 function senderDisplay(senderId: string, identity?: TelexIdentityBrief): string {
 	if (!identity) return senderId;
-	const name = identity.display_name || senderId;
+	const name = identity.name || senderId;
 	return identity.email
 		? `${name} (${identity.email}, id ${senderId})`
 		: `${name} (id ${senderId})`;

@@ -1,6 +1,6 @@
 # OpenClaw Telex
 
-An [OpenClaw](https://github.com/openclaw/openclaw) channel plugin for **Voyager Telex** - the messaging product inside Voyager. It lets an OpenClaw agent receive and reply to Telex direct chats and channels through the Telex OpenAPI, using a Telex **bot** API key.
+An [OpenClaw](https://github.com/openclaw/openclaw) channel plugin for **Voyager Telex** - the messaging product inside Voyager. It lets an OpenClaw agent receive and reply to Telex direct chats and channels through the Telex OpenAPI, using a **bot** API key.
 
 The channel id inside OpenClaw is `telex`.
 
@@ -20,7 +20,7 @@ The wizard asks for the bot API key, the Voyager base URL, and DM/channel polici
 
 ## Get a bot API key
 
-1. In Voyager, add a bot under Settings -> Telex Bots -> **Custom Bots**.
+1. In Voyager, create a bot under Settings -> Bots.
 2. Copy the one-time **plaintext API key** shown when it is created.
 3. The base URL is your Voyager host (default `https://voyager.ingarena.net`).
 
@@ -37,7 +37,7 @@ Config lives under `channels.telex`:
       "enabled": true,
       "apiKey": "<plaintext bot api key>",
       "baseUrl": "https://voyager.ingarena.net",
-      "botId": "0a1b2c3d4e5f6071",        // optional override; identity is resolved via get-identity at connect
+      "botId": "0a1b2c3d4e5f6071",        // optional override; identity is resolved via identity/get at connect
 
       "dmPolicy": "allowlist",             // open | allowlist | pairing
       "allowFrom": ["alice@company.com", "0a1b2c3d4e5f6071"],
@@ -63,9 +63,9 @@ Config lives under `channels.telex`:
 
 | Key | Default | Meaning |
 | --- | --- | --- |
-| `apiKey` | - | Telex bot API key (`x-api-key`). Required. |
+| `apiKey` | - | Bot API key (`x-api-key`). Required. |
 | `baseUrl` | `https://voyager.ingarena.net` | Voyager API host. |
-| `botId` | - | The bot's identity id (16-char hex). Optional override; the plugin resolves it via `get-identity` at connect. |
+| `botId` | - | The bot's identity id (16-char hex). Optional override; the plugin resolves it via `identity/get` at connect. |
 | `dmPolicy` | `allowlist` | Who may DM the bot. `open` requires `allowFrom` to include `"*"`. |
 | `allowFrom` | - | Identity ids or emails allowed to DM (and pairing-approved ids). |
 | `groupPolicy` | `disabled` | Channel participation. `allowlist` restricts to `groupAllowFrom`. |
@@ -90,7 +90,7 @@ Multiple bots are supported via `channels.telex.accounts.<id>` overrides, the sa
 - **Interactive messages**: an `ask_user` question goes out as a select card; a tap, a skip or free text on the card answers it, and the card is closed when the question ends another way, typed replies included. Interaction blocks others send reach the agent as `<interaction>` markup, carrying the ids `answer_interaction` needs when the interaction asks the bot.
 - **Quotes**: the agent sees a quoted message as the reply target. Replies quote only when the agent sets a reply target (a reply tag or the message tool's `replyTo`), and drop the quote if the server refuses it.
 - **Approvals** (exec, plugin and system-agent) go only to the bot's owner, as a button card: in place when raised in a chat with the owner, otherwise in the owner's default chat with the bot.
-- **Self-echo suppression**: the subscribe stream fans the bot's own messages back to it, so the plugin drops messages sent by its own identity (resolved via `get-identity` at connect; `botId` overrides, and send responses confirm it).
+- **Self-echo suppression**: the subscribe stream fans the bot's own messages back to it, so the plugin drops messages sent by its own identity (resolved via `identity/get` at connect; `botId` overrides, and send responses confirm it).
 
 ## Agent tool
 
@@ -98,7 +98,7 @@ When enabled, the plugin registers a `telex` tool so the agent can inspect Telex
 
 - `search_identities` - fuzzy find users/bots by name or email
 - `get_identities` - exact resolve by id and/or email
-- `update_identity` - edit the bot's own display name and/or description
+- `update_identity` - edit the bot's own name and/or description
 - `list_conversations` - chats and channels (paginated)
 - `get_conversation_info` - a conversation's details
 - `create_channel` - create a channel
