@@ -4,6 +4,7 @@
 
 - Stream each agent run into one message: thinking, the agent's remarks, tool progress and the reply (`streaming`, on by default).
 - Report identity kind `agent` instead of `mate_instance`.
+- Report identity status `inactive`, and leave `avatar` out of identity results.
 
 ## 1.2.0
 

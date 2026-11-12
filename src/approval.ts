@@ -180,7 +180,7 @@ const telexApprovalNativeRuntime = createChannelApprovalNativeRuntimeAdapter<
 	presentation: {
 		buildPendingPayload: ({ cfg, accountId, view }) => {
 			const owner = ownerId(cfg, accountId);
-			if (!owner) throw new Error("Telex bot owner unknown");
+			if (!owner) throw new Error("Bot owner unknown");
 			return approvalBlocks(view, owner);
 		},
 		buildResolvedResult: () => ({ kind: "clear-actions" }),

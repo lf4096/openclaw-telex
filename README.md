@@ -20,7 +20,7 @@ The wizard asks for the bot API key, the Voyager base URL, and DM/channel polici
 
 ## Get a bot API key
 
-1. In Voyager, add a bot under Settings -> Telex Bots -> **Custom Bots**.
+1. In Voyager, add a bot under Settings -> Bots.
 2. Copy the one-time **plaintext API key** shown when it is created.
 3. The base URL is your Voyager host (default `https://voyager.ingarena.net`).
 
@@ -63,7 +63,7 @@ Config lives under `channels.telex`:
 
 | Key | Default | Meaning |
 | --- | --- | --- |
-| `apiKey` | - | Telex bot API key (`x-api-key`). Required. |
+| `apiKey` | - | Bot API key (`x-api-key`). Required. |
 | `baseUrl` | `https://voyager.ingarena.net` | Voyager API host. |
 | `botId` | - | The bot's identity id (16-char hex). Optional override; the plugin resolves it via `get-identity` at connect. |
 | `dmPolicy` | `allowlist` | Who may DM the bot. `open` requires `allowFrom` to include `"*"`. |

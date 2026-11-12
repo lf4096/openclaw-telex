@@ -33,7 +33,7 @@ export const TelexToolSchema = Type.Union([
 		}),
 		display_name: Type.Optional(Type.String({ description: "New display name (1-100 chars)" })),
 		description: Type.Optional(
-			Type.String({ description: "New description (up to 200 chars)" }),
+			Type.String({ description: "New description (up to 1000 chars)" }),
 		),
 	}),
 	Type.Object({

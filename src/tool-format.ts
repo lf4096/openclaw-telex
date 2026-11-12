@@ -36,8 +36,9 @@ function messageFlagLabels(flags: number): string[] {
 
 // Leave the label empty so the server can fill in the display name.
 export function describeIdentity(i: TelexIdentityBrief) {
+	const { avatar: _ignored, ...rest } = i;
 	return {
-		...i,
+		...rest,
 		kind: identityKindLabel[i.kind] ?? i.kind,
 		status: identityStatusLabel[i.status] ?? i.status,
 		mention: `[@](mention:${i.id})`,
