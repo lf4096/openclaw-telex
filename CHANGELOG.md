@@ -4,6 +4,9 @@
 
 - Stream each agent run into one message: thinking, the agent's remarks, tool progress and the reply (`streaming`, on by default).
 - Report identity kind `agent` instead of `mate_instance`.
+- Search, read and update identities through `/openapi/identity/`.
+- Report identity `name` instead of `display_name`; `update_identity` takes `name`.
+- Report identity `agent_kind` and the identity flag `telex_disabled`, and leave `avatar` out of identity results.
 
 ## 1.2.0
 

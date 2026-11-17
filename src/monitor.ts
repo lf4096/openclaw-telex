@@ -449,7 +449,7 @@ async function connectSingleAccount(params: {
 		void reconcile(dispatchParams);
 		if (!approvalsRegistered) {
 			void client.ensureSelfIdentity().then(registerApprovals, (err) => {
-				log.warn("get-identity retry failed", { accountId, err: String(err) });
+				log.warn("identity/get retry failed", { accountId, err: String(err) });
 			});
 		}
 	}, SWEEP_INTERVAL_MS);
@@ -465,7 +465,7 @@ async function connectSingleAccount(params: {
 					// membership rows before any dispatch.
 					if (isAuthError(err)) {
 						log.error(
-							"get-identity rejected: check key scopes; identity will be armed from membership rows",
+							"identity/get rejected: check key scopes; identity will be armed from membership rows",
 							{
 								accountId,
 								err: String(err),
@@ -473,7 +473,7 @@ async function connectSingleAccount(params: {
 						);
 					} else {
 						log.warn(
-							"get-identity failed; identity will be armed from membership rows",
+							"identity/get failed; identity will be armed from membership rows",
 							{
 								accountId,
 								err: String(err),

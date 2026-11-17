@@ -10,7 +10,7 @@ const PermissionName = Type.Union(
 export const TelexToolSchema = Type.Union([
 	Type.Object({
 		action: Type.Literal("search_identities", {
-			description: "Search users and bots by display name or email (fuzzy).",
+			description: "Search users and bots by name or email (fuzzy).",
 		}),
 		query: Type.String({ description: "Search query (name or email)" }),
 		limit: Type.Optional(Type.Number({ description: "Max results (1-100)" })),
@@ -29,11 +29,11 @@ export const TelexToolSchema = Type.Union([
 	}),
 	Type.Object({
 		action: Type.Literal("update_identity", {
-			description: "Edit the bot's own display name and/or description.",
+			description: "Edit the bot's own name and/or description.",
 		}),
-		display_name: Type.Optional(Type.String({ description: "New display name (1-100 chars)" })),
+		name: Type.Optional(Type.String({ description: "New name (1-100 chars)" })),
 		description: Type.Optional(
-			Type.String({ description: "New description (up to 200 chars)" }),
+			Type.String({ description: "New description (up to 1000 chars)" }),
 		),
 	}),
 	Type.Object({

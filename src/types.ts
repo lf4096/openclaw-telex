@@ -43,7 +43,9 @@ export const TelexMemberRoleByName: Record<string, number | undefined> = {
 export const TelexMessageStatus = { COMPLETED: 0, IN_PROGRESS: 1, ERROR: 2, ABORTED: 3 } as const;
 export const TelexMessageFlag = { NONE: 0, EVENT: 1, EDITED: 2, FORK_PREFIX: 4 } as const;
 export const TelexIdentityKind = { USER: 0, AGENT: 1, BOT: 2 } as const;
+export const TelexAgentKind = { NONE: 0, MATE: 1, NEMO: 2 } as const;
 export const TelexIdentityStatus = { ACTIVE: 0, RETIRED: 1 } as const;
+export const TelexIdentityFlag = { NONE: 0, TELEX_DISABLED: 1 } as const;
 export const TelexToolStatus = { IN_PROGRESS: 0, SUCCESS: 1, ERROR: 2, ABORTED: 3 } as const;
 export const TelexInteractionMode = { SELECT: 1, BUTTON: 2 } as const;
 export const TelexInteractionStatus = {
@@ -139,13 +141,15 @@ export type TelexBlock = {
 
 export type TelexIdentityBrief = {
 	id: string;
-	kind: number;
-	display_name: string;
 	email: string;
+	kind: number;
+	agent_kind: number;
+	owner_id: string;
+	name: string;
 	avatar: string;
 	description: string;
-	owner_id: string;
 	status: number;
+	flags: number;
 };
 
 export type TelexMessage = {

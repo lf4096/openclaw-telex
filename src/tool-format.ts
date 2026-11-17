@@ -1,5 +1,6 @@
 import { messageInteractionMarkup } from "./interactive.js";
 import {
+	TelexAgentKind,
 	type TelexBlock,
 	TelexBlockType,
 	TelexChannelPermission,
@@ -7,6 +8,7 @@ import {
 	type TelexConversation,
 	TelexConversationKind,
 	type TelexIdentityBrief,
+	TelexIdentityFlag,
 	TelexIdentityKind,
 	TelexIdentityStatus,
 	type TelexMember,
@@ -21,14 +23,15 @@ import {
 const conversationKindLabel = labelMap(TelexConversationKind);
 const memberRoleLabel = labelMap(TelexMemberRole);
 const identityKindLabel = labelMap(TelexIdentityKind);
+const agentKindLabel = labelMap(TelexAgentKind);
 const identityStatusLabel = labelMap(TelexIdentityStatus);
 const messageStatusLabel = labelMap(TelexMessageStatus);
 const toolStatusLabel = labelMap(TelexToolStatus);
 const blockTypeLabel = labelMap(TelexBlockType);
 
-function messageFlagLabels(flags: number): string[] {
+function flagLabels(e: Record<string, number>, flags: number): string[] {
 	const out: string[] = [];
-	for (const [name, bit] of Object.entries(TelexMessageFlag)) {
+	for (const [name, bit] of Object.entries(e)) {
 		if (bit !== 0 && (flags & bit) === bit) out.push(name.toLowerCase());
 	}
 	return out;
@@ -36,10 +39,13 @@ function messageFlagLabels(flags: number): string[] {
 
 // Leave the label empty so the server can fill in the display name.
 export function describeIdentity(i: TelexIdentityBrief) {
+	const { avatar: _avatar, agent_kind: _agentKind, ...rest } = i;
 	return {
-		...i,
+		...rest,
 		kind: identityKindLabel[i.kind] ?? i.kind,
+		...(i.agent_kind ? { agent_kind: agentKindLabel[i.agent_kind] ?? i.agent_kind } : {}),
 		status: identityStatusLabel[i.status] ?? i.status,
+		flags: flagLabels(TelexIdentityFlag, i.flags),
 		mention: `[@](mention:${i.id})`,
 	};
 }
@@ -105,7 +111,7 @@ export function describeMessage(m: TelexMessage, selfId: string | null, direct: 
 	return {
 		...m,
 		status: messageStatusLabel[m.status] ?? m.status,
-		flags: messageFlagLabels(m.flags),
+		flags: flagLabels(TelexMessageFlag, m.flags),
 		data: {
 			...m.data,
 			blocks: (m.data?.blocks ?? [])

@@ -20,7 +20,8 @@ const IDENTITY_CACHE_MAX = 2_000;
 const CONVERSATION_CACHE_MAX = 2_000;
 const CACHE_TTL_MS = 10 * 60 * 1000;
 
-const OPENAPI_PREFIX = "/voyager/v1/openapi/telex";
+const TELEX_PREFIX = "/voyager/v1/openapi/telex";
+const IDENTITY_PREFIX = "/voyager/v1/openapi/identity";
 
 export type SendMessageParams = {
 	conversationId?: string;
@@ -121,6 +122,17 @@ export async function fetchWithTimeout(
 	}
 }
 
+type QueryParams = Record<string, string | number | undefined>;
+
+function withQuery(path: string, params?: QueryParams): string {
+	const qs = new URLSearchParams();
+	for (const [key, value] of Object.entries(params ?? {})) {
+		if (value !== undefined && value !== "") qs.set(key, String(value));
+	}
+	const query = qs.toString();
+	return query ? `${path}?${query}` : path;
+}
+
 export class TelexClient {
 	private apiKey: string;
 	private baseUrl: string;
@@ -187,17 +199,20 @@ export class TelexClient {
 		return data as T;
 	}
 
-	private get<T>(path: string, params?: Record<string, string | number | undefined>): Promise<T> {
-		const qs = new URLSearchParams();
-		for (const [key, value] of Object.entries(params ?? {})) {
-			if (value !== undefined && value !== "") qs.set(key, String(value));
-		}
-		const query = qs.toString();
-		return this.apiCall<T>("GET", `${OPENAPI_PREFIX}${path}${query ? `?${query}` : ""}`);
+	private get<T>(path: string, params?: QueryParams): Promise<T> {
+		return this.apiCall<T>("GET", withQuery(`${TELEX_PREFIX}${path}`, params));
 	}
 
 	private post<T>(path: string, body: unknown): Promise<T> {
-		return this.apiCall<T>("POST", `${OPENAPI_PREFIX}${path}`, body);
+		return this.apiCall<T>("POST", `${TELEX_PREFIX}${path}`, body);
+	}
+
+	private identityGet<T>(path: string, params?: QueryParams): Promise<T> {
+		return this.apiCall<T>("GET", withQuery(`${IDENTITY_PREFIX}${path}`, params));
+	}
+
+	private identityPost<T>(path: string, body: unknown): Promise<T> {
+		return this.apiCall<T>("POST", `${IDENTITY_PREFIX}${path}`, body);
 	}
 
 	async sendMessage(params: SendMessageParams): Promise<TelexMessage> {
@@ -280,7 +295,7 @@ export class TelexClient {
 		const form = new FormData();
 		form.append("file", new Blob([bytes], { type: mime || "application/octet-stream" }), name);
 		const res = await fetchWithTimeout(
-			`${this.baseUrl}${OPENAPI_PREFIX}/upload-file`,
+			`${this.baseUrl}${TELEX_PREFIX}/upload-file`,
 			{
 				method: "POST",
 				headers: { "x-api-key": this.apiKey },
@@ -303,7 +318,7 @@ export class TelexClient {
 
 	// The encrypted file id is the download capability.
 	fileDownloadUrl(fileId: string): string {
-		return `${this.baseUrl}${OPENAPI_PREFIX}/download-file?file_id=${encodeURIComponent(fileId)}`;
+		return `${this.baseUrl}${TELEX_PREFIX}/download-file?file_id=${encodeURIComponent(fileId)}`;
 	}
 
 	async downloadFile(fileId: string): Promise<{ buffer: Buffer; contentType: string }> {
@@ -340,7 +355,7 @@ export class TelexClient {
 			{ conversation_id: conversationId },
 		);
 		// The caller's own membership row names the bot's identity: arming here
-		// covers keys that cannot call get-identity, before any dispatch.
+		// covers keys that cannot get their own identity, before any dispatch.
 		this.armSelfId(conversation.membership?.identity_id);
 		// Any authoritative read tightens seeded sync state (e.g. a tool read
 		// revealing messages the lossy stream dropped).
@@ -457,7 +472,7 @@ export class TelexClient {
 	}
 
 	async searchIdentities(query: string, limit?: number): Promise<TelexIdentityBrief[]> {
-		const res = await this.get<{ identities?: TelexIdentityBrief[] }>("/search-identities", {
+		const res = await this.identityGet<{ identities?: TelexIdentityBrief[] }>("/search", {
 			query,
 			limit,
 		});
@@ -465,13 +480,10 @@ export class TelexClient {
 	}
 
 	async getIdentities(ids: string[], emails: string[]): Promise<TelexIdentityBrief[]> {
-		const res = await this.post<{ identities?: TelexIdentityBrief[] }>(
-			"/batch-get-identities",
-			{
-				ids,
-				emails,
-			},
-		);
+		const res = await this.identityPost<{ identities?: TelexIdentityBrief[] }>("/batch-get", {
+			ids,
+			emails,
+		});
 		const identities = res.identities ?? [];
 		for (const identity of identities) {
 			writeCache(this.identityCache, identity.id, identity, IDENTITY_CACHE_MAX);
@@ -500,11 +512,11 @@ export class TelexClient {
 	}
 
 	async updateIdentity(fields: {
-		displayName?: string;
+		name?: string;
 		description?: string;
 	}): Promise<TelexIdentityBrief> {
-		const { identity } = await this.post<{ identity: TelexIdentityBrief }>("/update-identity", {
-			display_name: fields.displayName,
+		const { identity } = await this.identityPost<{ identity: TelexIdentityBrief }>("/update", {
+			name: fields.name,
 			description: fields.description,
 		});
 		writeCache(this.identityCache, identity.id, identity, IDENTITY_CACHE_MAX);
@@ -524,7 +536,7 @@ export class TelexClient {
 			controller.abort();
 		}, SUBSCRIBE_IDLE_TIMEOUT_MS);
 		try {
-			const res = await fetch(`${this.baseUrl}${OPENAPI_PREFIX}/subscribe`, {
+			const res = await fetch(`${this.baseUrl}${TELEX_PREFIX}/subscribe`, {
 				headers: { "x-api-key": this.apiKey, Accept: "text/event-stream" },
 				signal: controller.signal,
 			});
@@ -628,9 +640,9 @@ export class TelexClient {
 	// mentions are settled as ineligible until the first send reveals the id.
 	async ensureSelfIdentity(): Promise<void> {
 		if (this.selfId && this.ownerId) return;
-		const { identity } = await this.get<{ identity?: { id?: string; owner_id?: string } }>(
-			"/get-identity",
-		);
+		const { identity } = await this.identityGet<{
+			identity?: { id?: string; owner_id?: string };
+		}>("/get");
 		if (!this.selfId && identity?.id) this.selfId = identity.id;
 		if (identity?.owner_id) this.ownerId = identity.owner_id;
 	}
