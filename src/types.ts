@@ -30,6 +30,7 @@ export const TelexBlockType = {
 	INTERACTION: 6,
 	THINKING: 11,
 	TOOL: 12,
+	NOTICE: 14,
 	EVENT: 21,
 } as const;
 
@@ -56,6 +57,7 @@ export const TelexInteractionStatus = {
 	CLOSED: 4,
 } as const;
 export const TelexInteractionButtonStyle = { DEFAULT: 0, PRIMARY: 1, DANGER: 2 } as const;
+export const TelexNoticeLevel = { INFO: 0, WARNING: 1, ERROR: 2 } as const;
 
 // Agents need readable labels for wire-level integer enums.
 export function labelMap(e: Record<string, number>): Record<number, string> {
@@ -124,6 +126,14 @@ export type TelexInteraction = {
 	answerer_id?: string;
 };
 
+export type TelexNotice = {
+	kind: string;
+	title: string;
+	description?: string;
+	level?: number;
+	details?: Record<string, unknown>;
+};
+
 export type TelexEvent = {
 	kind: string;
 	details?: Record<string, unknown>;
@@ -136,6 +146,7 @@ export type TelexBlock = {
 	media?: TelexMedia;
 	interaction?: TelexInteraction;
 	tool?: TelexTool;
+	notice?: TelexNotice;
 	event?: TelexEvent;
 };
 

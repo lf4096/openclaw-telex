@@ -14,6 +14,7 @@ import type { ReplyPayload } from "openclaw/plugin-sdk/reply-payload";
 import type { TelexClient } from "./client.js";
 import { logger } from "./log.js";
 import { textBlock } from "./send.js";
+import type { TelexStream } from "./stream.js";
 import {
 	type ResolvedTelexAccount,
 	type TelexBlock,
@@ -148,6 +149,8 @@ export async function closeInteraction(
 	}
 }
 
+// sendTelexCard puts the card in the reply streaming in the conversation, or sends it on its own,
+// and reports whether it went out.
 export async function sendTelexCard(params: {
 	client: TelexClient;
 	account: ResolvedTelexAccount;
@@ -155,8 +158,9 @@ export async function sendTelexCard(params: {
 	sessionKey: string;
 	card: TelexCard;
 	quoteId?: string;
-}): Promise<TelexMessage | undefined> {
-	const { client, account, conversationId, sessionKey, card, quoteId } = params;
+	stream?: TelexStream;
+}): Promise<boolean> {
+	const { client, account, conversationId, sessionKey, card, quoteId, stream } = params;
 	let message: TelexMessage;
 	try {
 		const answererIds = await answererIdsFor(client, account, conversationId);
@@ -165,14 +169,16 @@ export async function sendTelexCard(params: {
 				? { ...block, interaction: { ...block.interaction, answerer_ids: answererIds } }
 				: block,
 		);
-		message = await client.sendMessage({ conversationId, quoteId, blocks });
+		message =
+			(await stream?.appendCard(blocks, quoteId)) ??
+			(await client.sendMessage({ conversationId, quoteId, blocks }));
 	} catch (err) {
 		logger("outbound").warn("question card refused", {
 			accountId: account.accountId,
 			conversationId,
 			err: String(err),
 		});
-		return undefined;
+		return false;
 	}
 	remember(message.id, {
 		questionId: card.questionId,
@@ -190,7 +196,7 @@ export async function sendTelexCard(params: {
 				await closeInteraction(client, message.id, QUESTION_INTERACTION_ID);
 		},
 	});
-	return message;
+	return true;
 }
 
 export type AnsweredDetails = {

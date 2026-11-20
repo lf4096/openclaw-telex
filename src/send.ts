@@ -1,7 +1,7 @@
 import type { TelexClient } from "./client.js";
 import { logger } from "./log.js";
 import { mediaBlock, prepareOutboundMedia } from "./media.js";
-import { type TelexBlock, TelexBlockType, type TelexMessage } from "./types.js";
+import { type TelexBlock, TelexBlockType, type TelexMessage, type TelexNotice } from "./types.js";
 
 // Telex caps a message's serialized `data` at 1 MiB.
 export const TELEX_MESSAGE_MAX_BYTES = 1024 * 1024;
@@ -13,6 +13,10 @@ export const TELEX_TEXT_CHUNK_LIMIT = 200_000;
 
 export function textBlock(text: string): TelexBlock {
 	return { type: TelexBlockType.TEXT, text };
+}
+
+export function noticeBlock(notice: TelexNotice): TelexBlock {
+	return { type: TelexBlockType.NOTICE, notice };
 }
 
 // Uploads an outbound media reference to a block, or a short text note if the upload
@@ -32,8 +36,10 @@ export async function messageBlocks(
 	client: TelexClient,
 	text: string,
 	mediaUrls: string[],
+	notice?: TelexNotice,
 ): Promise<TelexBlock[]> {
 	const blocks: TelexBlock[] = [];
+	if (notice) blocks.push(noticeBlock(notice));
 	if (text) blocks.push(textBlock(text));
 	for (const mediaUrl of mediaUrls) {
 		blocks.push(await outboundMediaBlock(client, mediaUrl));
@@ -50,16 +56,17 @@ export async function sendTelexMessage(params: {
 	client: TelexClient;
 	conversationId: string;
 	text?: string;
+	notice?: TelexNotice;
 	mediaUrls?: string[];
 	quoteId?: string;
 	chunk?: (text: string, limit: number) => string[];
 }): Promise<TelexMessage | undefined> {
-	const { client, conversationId, chunk } = params;
+	const { client, conversationId, notice, chunk } = params;
 	const text = params.text?.trim() ?? "";
 	const mediaUrls = params.mediaUrls ?? [];
 	let quoteId = params.quoteId;
 
-	if (mediaUrls.length === 0) {
+	if (mediaUrls.length === 0 && !notice) {
 		const parts = chunk ? chunk(text, TELEX_TEXT_CHUNK_LIMIT) : [text];
 		let last: TelexMessage | undefined;
 		for (const part of parts) {
@@ -75,6 +82,6 @@ export async function sendTelexMessage(params: {
 		return last;
 	}
 
-	const blocks = await messageBlocks(client, text, mediaUrls);
+	const blocks = await messageBlocks(client, text, mediaUrls, notice);
 	return client.sendMessage({ conversationId, quoteId, blocks });
 }

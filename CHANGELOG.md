@@ -2,7 +2,9 @@
 
 ## Unreleased
 
-- Stream each agent run into one message: thinking, the agent's remarks, tool progress and the reply (`streaming`, on by default).
+- Stream each agent run into one message: thinking, the agent's remarks, tool progress, the reply and an `ask_user` card (`streaming`, on by default).
+- Send OpenClaw's error replies, and its compaction, model fallback and status replies of one line, as notice blocks.
+- Show incoming notices to the agent as `<notice>` lines.
 - Report identity kind `agent` instead of `mate_instance`.
 - Search, read and update identities through `/openapi/identity/`.
 - Report identity `name` instead of `display_name`; `update_identity` takes `name`.

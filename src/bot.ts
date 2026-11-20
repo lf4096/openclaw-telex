@@ -6,6 +6,7 @@ import {
 	resolveDmGroupAccessWithLists,
 } from "openclaw/plugin-sdk/channel-policy";
 import type { OpenClawConfig } from "openclaw/plugin-sdk/core";
+import { questionGatewayRuntime } from "openclaw/plugin-sdk/question-gateway-runtime";
 import { resolveSendableOutboundReplyParts } from "openclaw/plugin-sdk/reply-payload";
 import type { RuntimeEnv } from "openclaw/plugin-sdk/runtime";
 import { readSessionUpdatedAt, resolveStorePath } from "openclaw/plugin-sdk/session-store-runtime";
@@ -21,6 +22,7 @@ import {
 } from "./interactive.js";
 import { logger } from "./log.js";
 import { mediaMarkdownLink, mediaPlaceholder, resolveInboundMedia } from "./media.js";
+import { noticeLine, replyNotice } from "./notice.js";
 import { getTelexRuntime } from "./runtime.js";
 import { sendTelexMessage, textBlock } from "./send.js";
 import { type TelexStream, createTelexStream } from "./stream.js";
@@ -47,15 +49,19 @@ async function extractMessageContent(
 	client: TelexClient,
 	message: TelexMessage,
 	direct: boolean,
-): Promise<{ text: string; media: InboundMediaFacts[] }> {
+): Promise<{ text: string; media: InboundMediaFacts[]; startsTurn: boolean }> {
 	const textParts: string[] = [];
 	const placeholders: string[] = [];
 	const media: InboundMediaFacts[] = [];
+	let startsTurn = false;
 
 	for (const block of message.data.blocks) {
 		switch (block.type) {
 			case TelexBlockType.TEXT:
-				if (block.text?.trim()) textParts.push(block.text);
+				if (block.text?.trim()) {
+					textParts.push(block.text);
+					startsTurn = true;
+				}
 				break;
 			case TelexBlockType.INTERACTION:
 				if (block.interaction) {
@@ -67,12 +73,19 @@ async function extractMessageContent(
 							direct,
 						),
 					);
+					startsTurn = true;
 				}
+				break;
+			// A notice reports how its sender ran and asks nothing, so notices alone start no turn:
+			// answering them would set two agents replying to each other.
+			case TelexBlockType.NOTICE:
+				if (block.notice) textParts.push(noticeLine(block.notice));
 				break;
 			case TelexBlockType.IMAGE:
 			case TelexBlockType.VIDEO:
 			case TelexBlockType.AUDIO:
 			case TelexBlockType.FILE: {
+				startsTurn = true;
 				placeholders.push(mediaPlaceholder(block));
 				const facts = await resolveInboundMedia({ client, block });
 				if (facts) media.push(facts);
@@ -83,7 +96,7 @@ async function extractMessageContent(
 
 	let text = textParts.join("\n");
 	if (!text && placeholders.length > 0) text = placeholders.join(" ");
-	return { text, media };
+	return { text, media, startsTurn };
 }
 
 // Include the sender id so the agent can mention them.
@@ -113,6 +126,9 @@ function historyMessageText(client: TelexClient, message: TelexMessage): string 
 						),
 					);
 				}
+				break;
+			case TelexBlockType.NOTICE:
+				if (block.notice) parts.push(noticeLine(block.notice));
 				break;
 			case TelexBlockType.IMAGE:
 			case TelexBlockType.VIDEO:
@@ -330,13 +346,13 @@ export async function handleTelexMessage(params: {
 		}
 	}
 
-	const { text: messageText, media: mediaList } = await extractMessageContent(
-		client,
-		message,
-		!isChannel,
-	);
-	if (!messageText && mediaList.length === 0) {
-		log.info("skip: empty message", base);
+	const {
+		text: messageText,
+		media: mediaList,
+		startsTurn,
+	} = await extractMessageContent(client, message, !isChannel);
+	if (!startsTurn) {
+		log.info(messageText ? "skip: notices only" : "skip: empty message", base);
 		return;
 	}
 	const quote = await inboundQuote(client, message).catch((err) => {
@@ -475,27 +491,18 @@ function buildTelexDelivery(params: {
 				resolveSendableOutboundReplyParts(payload);
 			const { card, text } = await renderTelexReply(payload);
 			if (!hasContent && !card && !text) return;
-			const replyText = text ?? trimmedText;
+			const replyText = (text ?? trimmedText).trim();
+			const notice = replyNotice(payload, replyText, info.kind);
 			log.info("deliver", {
 				accountId,
 				conversationId,
 				kind: info.kind,
 				card: Boolean(card),
+				notice: notice?.kind,
 				mediaCount: mediaUrls.length,
 			});
 			try {
-				if (card) {
-					await stream?.interrupt();
-				} else if (
-					(await stream?.appendReply({
-						text: replyText,
-						mediaUrls,
-						quoteId: payload.replyToId,
-					})) === "appended"
-				) {
-					return;
-				}
-				const sent =
+				if (
 					card &&
 					(await sendTelexCard({
 						client,
@@ -504,15 +511,23 @@ function buildTelexDelivery(params: {
 						sessionKey,
 						card,
 						quoteId: payload.replyToId,
-					}));
-				await sendTelexMessage({
-					client,
-					conversationId,
-					text: sent ? "" : replyText,
+						stream,
+					}))
+				) {
+					await sendTelexMessage({ client, conversationId, mediaUrls });
+					return;
+				}
+				const reply = {
+					text: notice ? "" : replyText,
+					notice,
 					mediaUrls,
-					quoteId: sent ? undefined : payload.replyToId,
-					chunk: chunkText,
-				});
+					quoteId: payload.replyToId,
+				};
+				// The run waits for the answer to a question, so a question ends its message and the
+				// run's next content lands below the answer.
+				const endsMessage = Boolean(questionGatewayRuntime.readAskUserQuestionId(payload));
+				if ((await stream?.appendReply({ ...reply, endsMessage })) === "appended") return;
+				await sendTelexMessage({ client, conversationId, ...reply, chunk: chunkText });
 			} catch (err) {
 				log.error("deliver failed", { accountId, conversationId, err: String(err) });
 				throw err;

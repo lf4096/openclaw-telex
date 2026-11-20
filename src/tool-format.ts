@@ -16,6 +16,7 @@ import {
 	type TelexMessage,
 	TelexMessageFlag,
 	TelexMessageStatus,
+	TelexNoticeLevel,
 	TelexToolStatus,
 	labelMap,
 } from "./types.js";
@@ -27,6 +28,7 @@ const agentKindLabel = labelMap(TelexAgentKind);
 const identityStatusLabel = labelMap(TelexIdentityStatus);
 const messageStatusLabel = labelMap(TelexMessageStatus);
 const toolStatusLabel = labelMap(TelexToolStatus);
+const noticeLevelLabel = labelMap(TelexNoticeLevel);
 const blockTypeLabel = labelMap(TelexBlockType);
 
 function flagLabels(e: Record<string, number>, flags: number): string[] {
@@ -102,6 +104,14 @@ function describeBlock(m: TelexMessage, b: TelexBlock, selfId: string | null, di
 		type: blockTypeLabel[b.type] ?? b.type,
 		...(b.tool
 			? { tool: { ...b.tool, status: toolStatusLabel[b.tool.status] ?? b.tool.status } }
+			: {}),
+		...(b.notice
+			? {
+					notice: {
+						...b.notice,
+						level: noticeLevelLabel[b.notice.level ?? 0] ?? b.notice.level,
+					},
+				}
 			: {}),
 		...(interaction ? { text: messageInteractionMarkup(m, interaction, selfId, direct) } : {}),
 	};

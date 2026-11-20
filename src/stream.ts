@@ -8,12 +8,14 @@ import {
 } from "openclaw/plugin-sdk/channel-outbound";
 import { type TelexClient, isMessageUnwritable } from "./client.js";
 import type { Logger } from "./log.js";
-import { TELEX_MESSAGE_MAX_BYTES, messageBlocks, textBlock } from "./send.js";
+import { TELEX_MESSAGE_MAX_BYTES, messageBlocks, noticeBlock, textBlock } from "./send.js";
 import {
 	type TelexBlock,
 	TelexBlockType,
 	type TelexConfig,
+	type TelexMessage,
 	TelexMessageStatus,
+	type TelexNotice,
 	TelexToolStatus,
 } from "./types.js";
 
@@ -32,12 +34,13 @@ const THROTTLE_MS = 1000;
 const TOOL_TEXT_MAX_CHARS = 2000;
 // The margin covers the per-block fields the server adds.
 const MESSAGE_BUDGET_BYTES = TELEX_MESSAGE_MAX_BYTES - 64 * 1024;
-const COMPACTION_TOOL = "compaction";
 
 type TelexStreamReply = {
 	text: string;
+	notice?: TelexNotice;
 	mediaUrls: string[];
 	quoteId?: string;
+	endsMessage?: boolean;
 };
 
 type TelexReplyDelivery = "appended" | "separate";
@@ -45,6 +48,10 @@ type TelexReplyDelivery = "appended" | "separate";
 export type TelexStream = {
 	replyOptions: ReplyOptions;
 	appendReply: (reply: TelexStreamReply) => Promise<TelexReplyDelivery>;
+	appendCard: (
+		blocks: TelexBlock[],
+		quoteId: string | undefined,
+	) => Promise<TelexMessage | undefined>;
 	interrupt: () => Promise<void>;
 	endTurn: () => Promise<void>;
 };
@@ -67,7 +74,9 @@ type ToolSegment = {
 
 type ReplySegment = { kind: "reply"; blocks: TelexBlock[]; quoteId?: string; sent: boolean };
 
-type Segment = ThinkingSegment | CommentarySegment | ToolSegment | ReplySegment;
+type CardSegment = { kind: "card"; blocks: TelexBlock[]; sent: boolean };
+
+type Segment = ThinkingSegment | CommentarySegment | ToolSegment | ReplySegment | CardSegment;
 
 type Frame = { blocks: TelexBlock[]; bytes: number; commit: () => void };
 
@@ -76,7 +85,6 @@ type RunState = {
 	failed: boolean;
 	agentRunStarted: boolean;
 	dispatchRun?: DispatchRun;
-	compactionId?: string;
 	carriedTools?: ToolSegment[];
 	outcome?: RunOutcome;
 	// Reasoning arrives as a snapshot of the whole assistant message's thinking so far.
@@ -150,6 +158,7 @@ class TelexStreamMessage {
 	private state: "pending" | "open" | "failed" | "closed" = "pending";
 	private timer?: ReturnType<typeof setTimeout>;
 	private messageId?: string;
+	private latest?: TelexMessage;
 	private quoteId?: string;
 	private quoteSent = false;
 	private sentBytes = 0;
@@ -248,7 +257,19 @@ class TelexStreamMessage {
 		return true;
 	}
 
-	async end(params: { status: number; runEnded: boolean }): Promise<void> {
+	// endWithCard returns the message the card completed, or undefined when it did not go out.
+	async endWithCard(
+		blocks: TelexBlock[],
+		quoteId: string | undefined,
+		status: number,
+	): Promise<TelexMessage | undefined> {
+		if (quoteId) this.quoteId ??= quoteId;
+		const card: CardSegment = { kind: "card", blocks, sent: false };
+		await this.end({ status, runEnded: false, card });
+		return card.sent ? this.latest : undefined;
+	}
+
+	async end(params: { status: number; runEnded: boolean; card?: CardSegment }): Promise<void> {
 		this.clearTimer();
 		if (params.runEnded) {
 			for (const segment of this.segments) {
@@ -259,6 +280,9 @@ class TelexStreamMessage {
 		}
 		try {
 			if (this.state === "open") await this.loop.flush();
+			// Telex takes no answer on a message still in progress, so a card goes only in the frame
+			// that completes its message.
+			if (params.card) this.segments.push(params.card);
 			if (this.state !== "failed") await this.sendFinalFrame(params.status, params.runEnded);
 		} catch (err) {
 			this.fail(err);
@@ -321,8 +345,9 @@ class TelexStreamMessage {
 				? { ...block, text: `\n\n${block.text}` }
 				: block;
 		for (const segment of this.segments) {
-			if (scope === "replies" && segment.kind !== "reply") continue;
-			if (segment.kind === "reply") {
+			const reply = segment.kind === "reply" || segment.kind === "card";
+			if (scope === "replies" && !reply) continue;
+			if (reply) {
 				if (segment.sent) continue;
 				const [first, ...rest] = segment.blocks;
 				blocks.push(separate(first), ...rest);
@@ -427,6 +452,7 @@ class TelexStreamMessage {
 				: { conversationId, quoteId, blocks, status },
 		);
 		this.messageId ??= message.id;
+		this.latest = message;
 		if (quoteId) this.quoteSent = true;
 		frame.commit();
 	}
@@ -513,7 +539,6 @@ export function createTelexStream(params: {
 	// Verbose mode posts tool summaries and commentary as payloads of their own; tool and
 	// commentary blocks too would show each twice.
 	let verboseProgressActive = () => false;
-	let compactions = 0;
 	const turnRun = newRun();
 	let run: RunState | undefined = turnRun;
 
@@ -534,7 +559,7 @@ export function createTelexStream(params: {
 		owner.carriedTools = undefined;
 		return owner.message;
 	};
-	// A message closed mid-run leaves its running tools as they are: the run goes on, and a card's
+	// A message closed mid-run leaves its running tools as they are: the run goes on, and a question's
 	// tool is waiting for its answer. They reopen at the head of the next message, where their
 	// outcome lands next to their input.
 	const closeMidRun = async () => {
@@ -642,20 +667,6 @@ export function createTelexStream(params: {
 				run.message?.closeThinking();
 			},
 			onItemEvent,
-			onCompactionStart: () => {
-				if (!run) return;
-				compactions += 1;
-				run.compactionId = `${COMPACTION_TOOL}:${compactions}`;
-				message()?.startTool(run.compactionId, COMPACTION_TOOL, undefined);
-			},
-			// Newer runtimes report whether the compaction completed; older ones pass nothing.
-			onCompactionEnd: (payload?: { completed?: boolean }) => {
-				if (!run?.compactionId) return;
-				const status =
-					payload?.completed === false ? TelexToolStatus.ERROR : TelexToolStatus.SUCCESS;
-				message()?.endTool(run.compactionId, COMPACTION_TOOL, status, undefined);
-				run.compactionId = undefined;
-			},
 			onAgentRunTerminalOutcome: (value) => {
 				if (run) run.outcome = value;
 			},
@@ -672,12 +683,33 @@ export function createTelexStream(params: {
 		appendReply: async (reply) => {
 			const target = message();
 			const text = reply.text.trim();
-			if (target?.accepts(text ? jsonBytes(textBlock(text)) : 0)) {
-				const blocks = await messageBlocks(client, text, reply.mediaUrls);
-				if (target.appendReply(blocks, reply.quoteId)) return "appended";
+			const lead = reply.notice
+				? noticeBlock(reply.notice)
+				: text
+					? textBlock(text)
+					: undefined;
+			if (target?.accepts(lead ? jsonBytes(lead) : 0)) {
+				const blocks = await messageBlocks(client, text, reply.mediaUrls, reply.notice);
+				if (target.appendReply(blocks, reply.quoteId)) {
+					if (reply.endsMessage) await closeMidRun();
+					return "appended";
+				}
 			}
 			await closeMidRun();
 			return "separate";
+		},
+		// The card ends its message, after the tool blocks already in it, or a new one when that
+		// message has no room for it; the run continues in the next message.
+		appendCard: async (blocks, quoteId) => {
+			let target = message();
+			if (target && !target.accepts(jsonBytes(blocks))) {
+				await closeMidRun();
+				target = message();
+			}
+			if (!run || !target) return undefined;
+			run.message = undefined;
+			run.carriedTools = target.runningTools();
+			return target.endWithCard(blocks, quoteId, runStatus(run));
 		},
 		interrupt: closeMidRun,
 		endTurn: () => endRun(turnRun),
